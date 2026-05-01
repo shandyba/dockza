@@ -1,0 +1,72 @@
+{
+  "name": "docktui",
+  "version": "0.1.0",
+  "description": "Docker Desktop for your terminal — a lightweight TUI for managing containers, images, and volumes",
+  "bin": {
+    "docktui": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "author": "Achraf El Fadili <contact@elfadiliachraf.tech>",
+  "homepage": "https://github.com/0xShady/docktui#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xShady/docktui.git"
+  },
+  "bugs": {
+    "url": "https://github.com/0xShady/docktui/issues"
+  },
+  "keywords": [
+    "docker",
+    "tui",
+    "terminal",
+    "cli",
+    "containers",
+    "dockerode",
+    "blessed",
+    "neo-blessed",
+    "docker-desktop",
+    "devops"
+  ],
+  "scripts": {
+    "prebuild": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "tsc && tsc-alias",
+    "dev": "ts-node -r tsconfig-paths/register src/cli.ts",
+    "start": "node dist/cli.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "prepublish": "npm run lint && npm run format:check && npm run build && npm test"
+  },
+  "dependencies": {
+    "dayjs": "^1.11.13",
+    "dockerode": "^4.0.2",
+    "neo-blessed": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/blessed": "^0.1.25",
+    "@types/dockerode": "^3.3.29",
+    "@types/node": "^20.14.0",
+    "eslint": "^9.13.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.3",
+    "ts-node": "^10.9.2",
+    "tsc-alias": "^1.8.10",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8.12.0",
+    "vitest": "^4.1.6",
+    "@vitest/coverage-v8": "^4.1.6"
+  }
+}
