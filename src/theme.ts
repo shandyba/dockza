@@ -1,8 +1,3 @@
-// docktui v0.2 palette.
-// New tokens (accent, aqua, dim, faint, rule, rule2, bgSoft, bgSel, bgSelEdge,
-// panel) are the canonical names. Old v0.1 names (cyan, comment, selection,
-// bgAlt) are retained as aliases at the same hex so existing call sites keep
-// working — a separate rename PR will collapse the duplicates after v0.2 ships.
 export const C = {
   // backgrounds
   bg: '#0a0908',
