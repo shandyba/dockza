@@ -17,6 +17,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Disable CRLF conversion on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
 
       - uses: actions/setup-node@v4
         with:
