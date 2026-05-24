@@ -112,6 +112,7 @@ export class ImagesTab {
   hide(): void {
     this.active = false;
     this.wrapper.hide();
+    if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
     this.screen.removeKey('d', this.handleD);
   }
 

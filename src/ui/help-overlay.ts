@@ -48,6 +48,7 @@ export class HelpOverlay {
     this.visible = true;
     this.box.setContent(this.buildContent());
     this.box.show();
+    this.box.setFront();
     this.box.focus();
     this.screen.key(['escape'], this.handleClose);
     this.screen.render();
