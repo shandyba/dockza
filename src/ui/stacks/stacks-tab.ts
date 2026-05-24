@@ -139,7 +139,7 @@ export class StacksTab {
     this.tree.focus();
 
     this.screen.key(['enter'], this.handleEnter);
-    this.screen.key(['left', 'h'], this.handleLeft);
+    this.screen.key(['left'], this.handleLeft);
     this.screen.key(['right'], this.handleRight);
     this.screen.key(['l'], this.handleL);
     this.screen.key(['s'], this.handleS);
@@ -157,12 +157,12 @@ export class StacksTab {
     this.active = false;
     if (this.containerDetail.isVisible()) this.containerDetail.hide();
     if (this.logViewer.isVisible()) this.logViewer.hide();
+    if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
     if (this.filterOpen) this.exitFilter();
     this.wrapper.hide();
 
     this.screen.removeKey('enter', this.handleEnter);
     this.screen.removeKey('left', this.handleLeft);
-    this.screen.removeKey('h', this.handleLeft);
     this.screen.removeKey('right', this.handleRight);
     this.screen.removeKey('l', this.handleL);
     this.screen.removeKey('s', this.handleS);
@@ -217,6 +217,7 @@ export class StacksTab {
   cleanup(): void {
     if (this.containerDetail.isVisible()) this.containerDetail.hide();
     if (this.logViewer.isVisible()) this.logViewer.hide();
+    if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
   }
 
   setData(containers: ContainerInfo[], stacks?: Stack[]): void {
@@ -322,40 +323,39 @@ export class StacksTab {
 
   private readonly handleL = () => {
     if (!this.active || this.isModalOpen()) return;
-    const sel = this.tree.getSelected();
-    if (!sel || sel.kind !== 'service') return;
+    const c = this.getActionTarget();
+    if (!c) return;
     if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    this.logViewer.show(sel.container);
+    this.logViewer.show(c);
     this.logOpenHandlers.forEach((h) => h());
   };
 
   private readonly handleX = () => {
     if (!this.active || this.isModalOpen()) return;
-    const sel = this.tree.getSelected();
-    if (!sel || sel.kind !== 'service') return;
-    if (sel.container.status !== 'running') {
-      this.emitError(`Cannot exec into ${sel.container.name}: container is not running`);
+    const c = this.getActionTarget();
+    if (!c || c.status !== 'running') {
+      if (c) this.emitError(`Cannot exec into ${c.name}: container is not running`);
       return;
     }
     if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    const result = openExternalShell(sel.container.id);
+    const result = openExternalShell(c.id);
     if (!result.ok) {
-      this.emitError(result.error ?? `Failed to open external terminal for ${sel.container.name}`);
+      this.emitError(result.error ?? `Failed to open external terminal for ${c.name}`);
     }
     this.screen.render();
   };
 
   private readonly handleS = () => {
     if (!this.active || this.isModalOpen()) return;
-    const c = this.requireRunningService();
-    if (!c) return;
+    const c = this.getActionTarget();
+    if (!c || !isActive(c.status)) return;
     this.confirmAndRun('Stop container?', `${c.name} will be stopped.`, true, () => stopContainer(c.id));
   };
 
   private readonly handleR = () => {
     if (!this.active || this.isModalOpen()) return;
-    const c = this.requireRunningService();
-    if (!c) return;
+    const c = this.getActionTarget();
+    if (!c || !isActive(c.status)) return;
     this.confirmAndRun('Restart container?', `${c.name} will be restarted.`, false, () =>
       restartContainer(c.id),
     );
@@ -363,8 +363,8 @@ export class StacksTab {
 
   private readonly handleK = () => {
     if (!this.active || this.isModalOpen()) return;
-    const c = this.requireRunningService();
-    if (!c) return;
+    const c = this.getActionTarget();
+    if (!c || !isActive(c.status)) return;
     this.confirmAndRun('Kill container?', `${c.name} will be killed (SIGKILL).`, true, () =>
       killContainer(c.id),
     );
@@ -372,9 +372,8 @@ export class StacksTab {
 
   private readonly handleShiftS = () => {
     if (!this.active || this.isModalOpen()) return;
-    const sel = this.tree.getSelected();
-    if (!sel || sel.kind !== 'service') return;
-    const c = sel.container;
+    const c = this.getActionTarget();
+    if (!c) return;
     if (isActive(c.status)) {
       this.emitError(`${c.name} is already ${c.status}`);
       return;
@@ -395,19 +394,21 @@ export class StacksTab {
 
   private readonly handleD = () => {
     if (!this.active || this.isModalOpen()) return;
-    const sel = this.tree.getSelected();
-    if (!sel || sel.kind !== 'service') return;
-    const c = sel.container;
-    if (isActive(c.status)) return;
+    const c = this.getActionTarget();
+    if (!c || isActive(c.status)) return;
     this.confirmAndRun('Remove container?', `${c.name} will be permanently removed.`, true, () =>
       removeContainer(c.id),
     );
   };
 
-  private requireRunningService(): ContainerInfo | null {
+  /** Container targeted by tree/detail actions (detail takes precedence when open). */
+  private getActionTarget(): ContainerInfo | null {
+    if (this.containerDetail.isVisible()) {
+      const id = this.containerDetail.getContainerId();
+      if (id) return this.containers.find((c) => c.id === id) ?? null;
+    }
     const sel = this.tree.getSelected();
     if (!sel || sel.kind !== 'service') return null;
-    if (!isActive(sel.container.status)) return null;
     return sel.container;
   }
 

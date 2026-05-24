@@ -58,7 +58,6 @@ export class ContainerDetail {
       scrollable: true,
       keys: true,
       mouse: true,
-      vi: true,
       tags: true,
       alwaysScroll: true,
       scrollbar: { ch: '│', style: { fg: C.comment } },
@@ -205,8 +204,8 @@ export class ContainerDetail {
 
   private actionsLine(c: ContainerInfo): string {
     if (isActive(c.status)) {
-      return `  ${t.red('[s] Stop')}  ${t.green('[r] Restart')}  ${t.orange('[k] Kill')}  ${t.purple('[x] Shell')}  ${t.cyan('[l] Logs')}  ${t.yellow('[e] Env')}`;
+      return `  ${t.red('[s] Stop')}  ${t.green('[r] Restart')}  ${t.orange('[k] Kill')}  ${t.purple('[x] Shell')}  ${t.cyan('[l] Logs')}  ${t.yellow('[e] Env')}  ${t.comment('Esc close')}`;
     }
-    return `  ${t.green('[S] Start')}  ${t.red('[d] Remove')}  ${t.cyan('[l] Logs')}  ${t.yellow('[e] Env')}`;
+    return `  ${t.green('[S] Start')}  ${t.red('[d] Remove')}  ${t.cyan('[l] Logs')}  ${t.yellow('[e] Env')}  ${t.comment('Esc close')}`;
   }
 }

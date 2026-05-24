@@ -49,12 +49,11 @@ export class ContainersTab {
 
   private readonly handleL = () => {
     if (!this.active || this.isModalOpen()) return;
+    const c = this.getActionTarget();
+    if (!c) return;
     if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    const c = this.containerList.getSelected();
-    if (c) {
-      this.logViewer.show(c);
-      this.logOpenHandlers.forEach((h) => h());
-    }
+    this.logViewer.show(c);
+    this.logOpenHandlers.forEach((h) => h());
   };
 
   private confirmAndRun(title: string, message: string, danger: boolean, action: () => Promise<void>): void {
@@ -81,14 +80,14 @@ export class ContainersTab {
 
   private readonly handleS = () => {
     if (!this.active || this.isModalOpen()) return;
-    const c = this.containerList.getSelected();
+    const c = this.getActionTarget();
     if (!c || !isActive(c.status)) return;
     this.confirmAndRun('Stop container?', `${c.name} will be stopped.`, true, () => stopContainer(c.id));
   };
 
   private readonly handleR = () => {
     if (!this.active || this.isModalOpen()) return;
-    const c = this.containerList.getSelected();
+    const c = this.getActionTarget();
     if (!c || !isActive(c.status)) return;
     this.confirmAndRun('Restart container?', `${c.name} will be restarted.`, false, () =>
       restartContainer(c.id),
@@ -97,7 +96,7 @@ export class ContainersTab {
 
   private readonly handleK = () => {
     if (!this.active || this.isModalOpen()) return;
-    const c = this.containerList.getSelected();
+    const c = this.getActionTarget();
     if (!c || !isActive(c.status)) return;
     this.confirmAndRun('Kill container?', `${c.name} will be killed (SIGKILL).`, true, () =>
       killContainer(c.id),
@@ -106,7 +105,7 @@ export class ContainersTab {
 
   private readonly handleShiftS = () => {
     if (!this.active || this.isModalOpen()) return;
-    const c = this.containerList.getSelected();
+    const c = this.getActionTarget();
     if (!c) {
       this.emitError('No container selected');
       return;
@@ -131,7 +130,7 @@ export class ContainersTab {
 
   private readonly handleD = () => {
     if (!this.active || this.isModalOpen()) return;
-    const c = this.containerList.getSelected();
+    const c = this.getActionTarget();
     if (!c || isActive(c.status)) return;
     this.confirmAndRun('Remove container?', `${c.name} will be permanently removed.`, true, () =>
       removeContainer(c.id),
@@ -140,7 +139,7 @@ export class ContainersTab {
 
   private readonly handleX = () => {
     if (!this.active || this.isModalOpen()) return;
-    const c = this.containerList.getSelected();
+    const c = this.getActionTarget();
     if (!c || c.status !== 'running') {
       if (c) this.emitError(`Cannot exec into ${c.name}: container is not running`);
       return;
@@ -229,6 +228,7 @@ export class ContainersTab {
     this.containerList.hide();
     if (this.containerDetail.isVisible()) this.containerDetail.hide();
     if (this.logViewer.isVisible()) this.logViewer.hide();
+    if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
 
     this.screen.removeKey('enter', this.handleEnter);
     this.screen.removeKey('l', this.handleL);
@@ -261,6 +261,7 @@ export class ContainersTab {
   cleanup(): void {
     if (this.logViewer.isVisible()) this.logViewer.hide();
     if (this.containerDetail.isVisible()) this.containerDetail.hide();
+    if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
   }
 
   refreshListStats(): void {
@@ -329,6 +330,15 @@ export class ContainersTab {
 
   private isModalOpen(): boolean {
     return this.confirmDialog.isVisible() || this.logViewer.isVisible();
+  }
+
+  /** Container targeted by list/detail actions (detail takes precedence when open). */
+  private getActionTarget(): ContainerInfo | null {
+    if (this.containerDetail.isVisible()) {
+      const id = this.containerDetail.getContainerId();
+      if (id) return this.containers.find((c) => c.id === id) ?? null;
+    }
+    return this.containerList.getSelected();
   }
 
   private emitSelect(): void {
