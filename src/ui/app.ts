@@ -185,6 +185,16 @@ export class App {
     return isActive(c.status) ? 'containers-running' : 'containers-stopped';
   }
 
+  private readonly toggleHelp = (): void => {
+    if (this.overlayOpen) {
+      this.helpOverlay.hide();
+      return;
+    }
+    if (this.isHelpBlocked()) return;
+    this.overlayOpen = true;
+    this.helpOverlay.show();
+  };
+
   private setupKeys(): void {
     this.screen.key('tab', () => {
       if (!this.canSwitchView()) return;
@@ -206,18 +216,10 @@ export class App {
       });
     }
 
-    this.screen.key('?', () => {
-      if (this.isModalOpen()) return;
-      if (this.overlayOpen) {
-        this.helpOverlay.hide();
-      } else {
-        this.overlayOpen = true;
-        this.helpOverlay.show();
-      }
-    });
+    this.screen.key(['h'], this.toggleHelp);
 
     this.screen.key(['q', 'C-c'], () => {
-      if (this.overlayOpen || this.isConfirmOpen() || this.isFilterOpen()) return;
+      if (this.overlayOpen || this.isModalOpen()) return;
       this.shutdown();
     });
   }
@@ -236,17 +238,18 @@ export class App {
     );
   }
 
-  private isConfirmOpen(): boolean {
+  private isFilterOpen(): boolean {
+    return this.stacksTab.isFilterOpen();
+  }
+
+  private isHelpBlocked(): boolean {
     return (
       this.stacksTab.isConfirmOpen() ||
       this.containersTab.isConfirmOpen() ||
       this.imagesTab.isConfirmOpen() ||
-      this.volumesTab.isConfirmOpen()
+      this.volumesTab.isConfirmOpen() ||
+      this.isFilterOpen()
     );
-  }
-
-  private isFilterOpen(): boolean {
-    return this.stacksTab.isFilterOpen();
   }
 
   private showView(id: ViewId): void {
