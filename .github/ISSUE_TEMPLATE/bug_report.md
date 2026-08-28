@@ -9,7 +9,7 @@ A clear description of what's wrong.
 
 **To reproduce**
 Steps to reproduce the behavior:
-1. Run `docktui`
+1. Run `dockza`
 2. Navigate to ...
 3. Press ...
 
@@ -23,7 +23,7 @@ If applicable, paste a screenshot or asciicast.
 - OS: [e.g. macOS 14.5, Ubuntu 24.04, Windows 11]
 - Node.js version: [output of `node -v`]
 - Docker version: [output of `docker version --format '{{.Server.Version}}'`]
-- docktui version: [output of `npm ls -g docktui` or `npx docktui --version`]
+- dockza version: [output of `npm ls -g dockza` or `npx dockza --version`]
 
 **Additional context**
 Anything else that might help.

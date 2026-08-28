@@ -58,7 +58,7 @@ export class App {
       smartCSR: true,
       mouse: true,
       fullUnicode: true,
-      title: 'docktui',
+      title: 'dockza',
       terminal: 'xterm-256color',
     });
 

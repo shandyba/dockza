@@ -1,12 +1,12 @@
-# Contributing to docktui
+# Contributing to dockza
 
 Thanks for taking the time to help out. The project is small and the surface area is intentionally narrow — issues and PRs of any size are welcome.
 
 ## Getting set up
 
 ```bash
-git clone https://github.com/0xShady/docktui.git
-cd docktui
+git clone https://github.com/shandyba/dockza.git
+cd dockza
 npm install
 npm run dev
 ```
@@ -25,6 +25,7 @@ src/
   ui/                     neo-blessed widgets.
     app.ts                Screen, polling loop, view routing, global keys.
     widgets.ts            Shared factories + Dims interface.
+    resource-list-tab.ts  Shared base for the simple list views.
     top-bar.ts            One-row header (socket, version, counters, stats).
     footer.ts             One-row context-aware key hints + last-refresh ticker.
     side-rail.ts          28-col left rail: views + live stacks.
@@ -33,6 +34,7 @@ src/
     containers/           Containers tab, detail panel, log viewer, confirm dialog.
     images/               Images tab.
     volumes/              Volumes tab.
+    networks/             Networks tab.
 tests/                    Vitest tests parallel to src/. Pure logic only.
 ```
 
@@ -96,11 +98,11 @@ No strict convention enforced, but short imperative subjects help (`fix log-view
 
 ## Reporting bugs
 
-Open an issue at [github.com/0xShady/docktui/issues](https://github.com/0xShady/docktui/issues) with:
+Open an issue at [github.com/shandyba/dockza/issues](https://github.com/shandyba/dockza/issues) with:
 
 - Your OS and Node.js version (`node --version`)
 - Your Docker version (`docker version`)
-- The exact command you ran (e.g. `npx docktui@0.1.0`)
+- The exact command you ran (e.g. `npx dockza@0.2.0`)
 - Steps to reproduce
 - What you expected vs. what happened
 - Any error message from stderr, verbatim
@@ -109,8 +111,10 @@ Terminal recordings (asciinema, vhs) or screenshots are extremely helpful for la
 
 ## Suggesting features
 
-Open an issue using the **Feature request** template before writing code for anything beyond a small fix. It saves both sides time if the idea isn't a fit — docktui is intentionally a focused tool, not a full Docker Desktop replacement.
+Open an issue using the **Feature request** template before writing code for anything beyond a small fix. It saves both sides time if the idea isn't a fit — dockza is intentionally a focused tool, not a full Docker Desktop replacement.
 
 ## License
 
 By contributing you agree that your contributions are licensed under the project's [MIT License](./LICENSE).
+
+dockza is a fork of [docktui](https://github.com/0xShady/docktui) by Achraf El Fadili, continued independently under a new name. See [NOTICE](./NOTICE) for the full attribution and third-party licenses. Please open issues and pull requests here rather than upstream.

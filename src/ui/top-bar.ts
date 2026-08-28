@@ -68,7 +68,7 @@ export class TopBar {
 
   private buildLeft(width: number, rightVisualLen: number): string {
     const dv = this.dockerVersion ? ` ${t.dim('· docker')} ${t.dim(this.dockerVersion)}` : '';
-    const prefix = ` ${t.accent('◆')} ${t.accent('docktui')} ${t.dim(`v${VERSION}`)}${dv}  `;
+    const prefix = ` ${t.accent('◆')} ${t.accent('dockza')} ${t.dim(`v${VERSION}`)}${dv}  `;
     const prefixLen = visualLength(prefix);
     const sockBudget = Math.max(8, width - prefixLen - rightVisualLen - 4);
     const sock = this.socketPath ? t.dim(truncateMiddle(this.socketPath, sockBudget)) : '';

@@ -72,7 +72,7 @@ export class HelpOverlay {
     const section = (name: string): string => `\n  ${t.accent(name)}\n`;
 
     return [
-      `  {bold}${t.accent('docktui — key bindings')}{/bold}`,
+      `  {bold}${t.accent('dockza — key bindings')}{/bold}`,
       section('Navigation'),
       row('1 … 5', 'Jump to Stacks / Containers / Images / Volumes / Networks'),
       row('Tab / Shift+Tab', 'Cycle views'),

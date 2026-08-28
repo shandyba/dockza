@@ -7,6 +7,30 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-28
+
+First release under the name **dockza**. This project is a fork of
+[docktui](https://github.com/0xShady/docktui) v0.1.1 by Achraf El Fadili,
+continued independently after upstream development stopped. See
+[NOTICE](./NOTICE) for full attribution.
+
+### Changed
+
+- **Renamed `docktui` → `dockza`.** The binary, the npm package, the window
+  title, the header brand and the help-overlay title all now read `dockza`.
+  Users of `docktui` should `npm uninstall -g docktui` and
+  `npm install -g dockza`; there is no automatic migration path, but no
+  configuration or state is carried between them, so nothing is lost.
+- Repository moved to [github.com/shandyba/dockza](https://github.com/shandyba/dockza);
+  homepage is now [dockza.app](https://dockza.app).
+- New logo and icon set under `assets/` (`logo.svg` plus generated PNG, square,
+  favicon and apple-touch variants). The previous docktui logo has been removed
+  and is not carried into this fork.
+- `LICENSE` now carries the copyright notices of both the original author and
+  the fork maintainer, as MIT requires. A `NOTICE` file records the fork's
+  origin, the former name, third-party dependency licenses and trademark
+  attributions, and ships in the npm tarball alongside `LICENSE`.
+
 ### Added
 
 - **Networks view** — a fifth view (key `5`, beneath Volumes) listing Docker
@@ -22,6 +46,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.1.1] - 2026-05-24
 
+Released upstream as `docktui`, before the fork.
+
 ### Changed
 
 - Point `package.json` `homepage` at the new landing site
@@ -32,7 +58,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.1.0] - 2026-05-24
 
-First public release on npm.
+First public release on npm, as `docktui`.
 
 ### Added
 
@@ -52,6 +78,9 @@ First public release on npm.
 - CI runs lint, format check, build, and tests on Ubuntu / macOS / Windows × Node 20 / 22.
 - npm tarball ships only `dist/` + `README.md` + `LICENSE` (~32 kB).
 
-[Unreleased]: https://github.com/0xShady/docktui/compare/v0.1.1...HEAD
+Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
+
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/shandyba/dockza/releases/tag/v0.2.0
 [0.1.1]: https://github.com/0xShady/docktui/releases/tag/v0.1.1
 [0.1.0]: https://github.com/0xShady/docktui/releases/tag/v0.1.0

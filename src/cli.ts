@@ -7,7 +7,7 @@ async function main(): Promise<void> {
   const colors = detectColors();
   if (colors === 'low') {
     process.stderr.write(
-      'docktui requires a 256-color (or truecolor) terminal. Set TERM=xterm-256color or use a modern terminal emulator.\n',
+      'dockza requires a 256-color (or truecolor) terminal. Set TERM=xterm-256color or use a modern terminal emulator.\n',
     );
     process.exit(1);
   }

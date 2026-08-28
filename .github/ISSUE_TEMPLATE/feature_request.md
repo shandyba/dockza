@@ -8,7 +8,7 @@ labels: enhancement
 Describe the use case or pain point.
 
 **Proposed solution**
-What would you like docktui to do?
+What would you like dockza to do?
 
 **Alternatives considered**
 Other approaches you've thought about.

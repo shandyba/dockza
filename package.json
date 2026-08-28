@@ -1,27 +1,31 @@
 {
-  "name": "docktui",
-  "version": "0.1.1",
-  "description": "Docker Desktop for your terminal — a lightweight TUI for managing containers, images, and volumes",
+  "name": "dockza",
+  "version": "0.2.0",
+  "description": "A lightweight terminal UI for Docker — manage containers, images, volumes, and networks without leaving your terminal",
   "bin": {
-    "docktui": "./dist/cli.js"
+    "dockza": "./dist/cli.js"
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=20"
   },
   "license": "MIT",
-  "author": "Achraf El Fadili <contact@elfadiliachraf.tech>",
-  "homepage": "https://docktui.com",
+  "author": "Dmytro Shandyba <shandyba@gmail.com>",
+  "contributors": [
+    "Achraf El Fadili <contact@elfadiliachraf.tech> (original author of docktui, which dockza is forked from)"
+  ],
+  "homepage": "https://dockza.app",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/0xShady/docktui.git"
+    "url": "git+https://github.com/shandyba/dockza.git"
   },
   "bugs": {
-    "url": "https://github.com/0xShady/docktui/issues"
+    "url": "https://github.com/shandyba/dockza/issues"
   },
   "keywords": [
     "docker",
@@ -32,7 +36,8 @@
     "dockerode",
     "blessed",
     "neo-blessed",
-    "docker-desktop",
+    "compose",
+    "networks",
     "devops"
   ],
   "scripts": {

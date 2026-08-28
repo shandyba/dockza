@@ -1,0 +1,69 @@
+dockza
+Copyright (c) 2026 Dmytro Shandyba
+
+This product includes software originally developed as "docktui"
+Copyright (c) 2026 Achraf El Fadili
+
+================================================================================
+Origin and history
+================================================================================
+
+dockza is a fork of docktui, a terminal UI for Docker originally written by
+Achraf El Fadili and released under the MIT License.
+
+  Original project : docktui
+  Original author  : Achraf El Fadili <contact@elfadiliachraf.tech>
+  Original source  : https://github.com/0xShady/docktui
+  Original license : MIT (see LICENSE)
+
+The fork was made from docktui v0.1.1. Upstream development appeared to have
+stopped, and this fork continues the work independently. It is not affiliated
+with, endorsed by, or supported by the original author or the original project.
+
+Former names of this software:
+
+  docktui   (upstream project and npm package, through v0.1.1)
+  dockza    (this fork, from v0.2.0 onward)
+
+The complete authorship record is preserved in this repository's git history,
+which retains every original commit and its author attribution unmodified.
+
+Both the original code and the modifications made in this fork are distributed
+under the MIT License. The LICENSE file carries the copyright notices of the
+original author and of the fork maintainer, as the MIT License requires.
+
+Names, logos, domains and published packages belonging to the original project
+(including the docktui name, the docktui logo, the docktui.com domain and the
+"docktui" npm package) remain the property of the original author and are not
+used by this fork. dockza carries its own name and its own logo.
+
+================================================================================
+Third-party software
+================================================================================
+
+This software depends on the following third-party packages. They are declared
+as runtime dependencies and are not bundled into this distribution; each is
+retrieved and installed by the package manager under its own license.
+
+  dayjs         MIT          https://github.com/iamkun/dayjs
+  dockerode     Apache-2.0   https://github.com/apocas/dockerode
+  neo-blessed   MIT          https://github.com/embarklabs/neo-blessed
+
+dockerode is licensed under the Apache License, Version 2.0. A copy of that
+license is available at https://www.apache.org/licenses/LICENSE-2.0. If this
+software is ever redistributed in a form that bundles or vendors dockerode's
+source or object code, the Apache-2.0 attribution requirements (Section 4)
+apply and this NOTICE must be extended accordingly.
+
+================================================================================
+Trademarks
+================================================================================
+
+Docker and the Docker logo are trademarks or registered trademarks of Docker,
+Inc. dockza is an independent, unofficial tool. It is not produced, endorsed,
+sponsored, or supported by Docker, Inc., and the "dockza" name is not a Docker,
+Inc. product name.
+
+Podman is a trademark of Red Hat, Inc. Any other product names, logos and brands
+referenced in this software or its documentation are the property of their
+respective owners and are used for identification purposes only.
