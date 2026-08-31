@@ -14,6 +14,25 @@ First release under the name **dockza**. This project is a fork of
 continued independently after upstream development stopped. See
 [NOTICE](./NOTICE) for full attribution.
 
+### Fixed
+
+- **Crash on startup when any container publishes no ports.** The daemon sends
+  `Ports: null` (rather than `[]`) for such containers, and `toContainerInfo`
+  mapped over it unguarded — so `listContainers` threw
+  `Cannot read properties of null (reading 'map')` and the Stacks and Containers
+  views showed nothing but the error. `Ports`, `NetworkSettings.Networks` and
+  `Names` are now all null-tolerant. This affected every user with a portless
+  container; it predates the fork and was present throughout 0.1.x.
+
+### Security
+
+- Bumped `dockerode` 4.0.2 → 5.0.1, clearing all known advisories in the
+  dependency tree (2 high in `protobufjs`, 2 moderate in `uuid`; `npm audit`
+  now reports zero, with and without dev dependencies). dockerode 5.0.0's only
+  breaking changes are dropping its `uuid` dependency and raising the minimum
+  Node version, both of which this project already satisfies. `@types/dockerode`
+  moves 3.3.x → 4.0.x to match.
+
 ### Changed
 
 - **Renamed `docktui` → `dockza`.** The binary, the npm package, the window

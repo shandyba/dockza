@@ -126,6 +126,12 @@ describe('toContainerInfo', () => {
     expect(info.ports).toEqual(['3000/tcp']);
   });
 
+  it('treats a null Ports payload as no ports', () => {
+    // The daemon sends Ports: null (not []) for containers that publish nothing.
+    const info = toContainerInfo(rawContainer({ Ports: null as any }), null);
+    expect(info.ports).toEqual([]);
+  });
+
   it('extracts networks and first IP', () => {
     const info = toContainerInfo(
       rawContainer({
@@ -145,6 +151,17 @@ describe('toContainerInfo', () => {
     const info = toContainerInfo(rawContainer({ NetworkSettings: { Networks: {} } }), null);
     expect(info.networks).toEqual([]);
     expect(info.ip).toBe('');
+  });
+
+  it('tolerates a null Networks map', () => {
+    const info = toContainerInfo(rawContainer({ NetworkSettings: { Networks: null } as any }), null);
+    expect(info.networks).toEqual([]);
+    expect(info.ip).toBe('');
+  });
+
+  it('falls back to raw.Id when Names is null', () => {
+    const info = toContainerInfo(rawContainer({ Names: null as any, Id: 'deadbeef' }), null);
+    expect(info.name).toBe('deadbeef');
   });
 
   it('maps mounts', () => {

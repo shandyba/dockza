@@ -18,7 +18,7 @@ export function toContainerInfo(
   raw: Dockerode.ContainerInfo,
   inspected: Dockerode.ContainerInspectInfo | null,
 ): ContainerInfo {
-  const name = (raw.Names[0] ?? raw.Id).replace(/^\//, '');
+  const name = (raw.Names?.[0] ?? raw.Id).replace(/^\//, '');
 
   const status: ContainerStatus = VALID_STATUSES.has(raw.State as ContainerStatus)
     ? (raw.State as ContainerStatus)
@@ -35,14 +35,17 @@ export function toContainerInfo(
     }
   }
 
-  const ports = raw.Ports.map((p) =>
+  // The daemon sends null (not []) for these when a container publishes no ports
+  // or is attached to no networks, so every access here has to tolerate null.
+  const ports = (raw.Ports ?? []).map((p) =>
     p.PublicPort
       ? `${p.IP ? `${p.IP}:` : ''}${p.PublicPort}->${p.PrivatePort}/${p.Type}`
       : `${p.PrivatePort}/${p.Type}`,
   );
 
-  const networks = Object.keys(raw.NetworkSettings.Networks ?? {});
-  const ip = networks.length > 0 ? (raw.NetworkSettings.Networks[networks[0]]?.IPAddress ?? '') : '';
+  const rawNetworks = raw.NetworkSettings?.Networks ?? {};
+  const networks = Object.keys(rawNetworks);
+  const ip = networks.length > 0 ? (rawNetworks[networks[0]]?.IPAddress ?? '') : '';
 
   const mounts: MountInfo[] = (raw.Mounts ?? []).map((m) => ({
     source: m.Source ?? '',
