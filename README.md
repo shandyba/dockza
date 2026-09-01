@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/dockza"><img src="https://img.shields.io/npm/v/dockza.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/dockza.app"><img src="https://img.shields.io/npm/v/dockza.app" alt="npm version"></a>
   <a href="https://github.com/shandyba/dockza/actions/workflows/ci.yml"><img src="https://github.com/shandyba/dockza/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/node/v/dockza.svg" alt="Node"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/node/v/dockza.app" alt="Node"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
@@ -22,15 +22,21 @@
 Run it without installing:
 
 ```bash
-npx dockza
+npx dockza.app
 ```
 
 Or install globally:
 
 ```bash
-npm install -g dockza
+npm install -g dockza.app
 dockza
 ```
+
+> **Note on the name.** The npm package is published as **`dockza.app`**, matching
+> the project homepage — the plain `dockza` name is rejected by npm's automated
+> typosquatting filter for being too close to an unrelated existing package.
+> Only the install command carries the suffix; once installed, the executable is
+> just `dockza`.
 
 ## Features
 

@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+  id-token: write # required for trusted publishing (OIDC)
 
 jobs:
   publish:
@@ -16,11 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14.0; Node 24
+      # ships npm 11.19+. No dependency cache: release builds resolve fresh.
+      - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
 
       - run: npm ci
 
@@ -33,11 +34,27 @@ jobs:
             exit 1
           fi
 
+      # 0.2.0 was published by hand before trusted publishing was configured,
+      # so tagging it retroactively must not fail the run.
+      - name: Check whether this version is already published
+        id: check
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION is already on the registry; skipping publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - run: npm run lint
       - run: npm run format:check
       - run: npm run build
       - run: npm test
 
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # No NODE_AUTH_TOKEN: OIDC supplies short-lived credentials, and npm
+      # generates the provenance attestation automatically.
+      - name: Publish to npm
+        if: steps.check.outputs.skip == 'false'
+        run: npm publish --access public

@@ -102,7 +102,7 @@ Open an issue at [github.com/shandyba/dockza/issues](https://github.com/shandyba
 
 - Your OS and Node.js version (`node --version`)
 - Your Docker version (`docker version`)
-- The exact command you ran (e.g. `npx dockza@0.2.0`)
+- The exact command you ran (e.g. `npx dockza.app@0.2.0`)
 - Steps to reproduce
 - What you expected vs. what happened
 - Any error message from stderr, verbatim

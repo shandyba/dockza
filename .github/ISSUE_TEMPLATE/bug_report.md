@@ -23,7 +23,7 @@ If applicable, paste a screenshot or asciicast.
 - OS: [e.g. macOS 14.5, Ubuntu 24.04, Windows 11]
 - Node.js version: [output of `node -v`]
 - Docker version: [output of `docker version --format '{{.Server.Version}}'`]
-- dockza version: [output of `npm ls -g dockza` or `npx dockza --version`]
+- dockza version: [output of `npm ls -g dockza.app`]
 
 **Additional context**
 Anything else that might help.

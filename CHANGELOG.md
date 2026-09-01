@@ -7,6 +7,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-02
+
+### Fixed
+
+- **Install instructions in the published package were wrong.** The 0.2.0
+  tarball shipped a README telling users to run `npx dockza` and
+  `npm install -g dockza` — neither of which resolves, because the package is
+  published as `dockza.app`. The npm version badge pointed at the same
+  nonexistent package. Anyone landing on the npm page and following it verbatim
+  got a failed install. Corrected to `dockza.app`, with a note clarifying that
+  the installed executable remains `dockza`.
+
+### Changed
+
+- Releases now publish from CI via npm [trusted publishing](https://docs.npmjs.com/trusted-publishers/)
+  (OIDC) instead of a long-lived `NPM_TOKEN`, so published tarballs carry a
+  provenance attestation linking them to the exact commit and workflow run that
+  built them. The release workflow moves to Node 24 (OIDC needs npm ≥ 11.5.1)
+  and skips publishing when the tagged version is already on the registry.
+
 ## [0.2.0] - 2026-08-28
 
 First release under the name **dockza**. This project is a fork of
@@ -35,11 +55,16 @@ continued independently after upstream development stopped. See
 
 ### Changed
 
-- **Renamed `docktui` → `dockza`.** The binary, the npm package, the window
-  title, the header brand and the help-overlay title all now read `dockza`.
-  Users of `docktui` should `npm uninstall -g docktui` and
-  `npm install -g dockza`; there is no automatic migration path, but no
-  configuration or state is carried between them, so nothing is lost.
+- **Renamed `docktui` → `dockza`.** The binary, the window title, the header
+  brand and the help-overlay title all now read `dockza`. Users of `docktui`
+  should `npm uninstall -g docktui` and `npm install -g dockza.app`; there is no
+  automatic migration path, but no configuration or state is carried between
+  them, so nothing is lost.
+- **The npm package is published as `dockza.app`, not `dockza`.** npm's
+  automated typosquatting filter rejects the plain `dockza` name for being too
+  similar to the unrelated `docz` package, so the published name matches the
+  project homepage instead. This affects the install command only — the
+  executable installed on `PATH` is still `dockza`.
 - Repository moved to [github.com/shandyba/dockza](https://github.com/shandyba/dockza);
   homepage is now [dockza.app](https://dockza.app).
 - New logo and icon set under `assets/` (`logo.svg` plus generated PNG, square,
@@ -95,11 +120,12 @@ First public release on npm, as `docktui`.
 
 - TypeScript strict mode, ESLint + Prettier, Vitest test suite (88 tests).
 - CI runs lint, format check, build, and tests on Ubuntu / macOS / Windows × Node 20 / 22.
-- npm tarball ships only `dist/` + `README.md` + `LICENSE` (~32 kB).
+- npm tarball ships only `dist/` + `README.md` + `LICENSE` + `NOTICE` (~35 kB).
 
 Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
 
-[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/shandyba/dockza/releases/tag/v0.2.1
 [0.2.0]: https://github.com/shandyba/dockza/releases/tag/v0.2.0
 [0.1.1]: https://github.com/0xShady/docktui/releases/tag/v0.1.1
 [0.1.0]: https://github.com/0xShady/docktui/releases/tag/v0.1.0
