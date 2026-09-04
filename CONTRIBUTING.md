@@ -52,6 +52,7 @@ Imports use TypeScript path aliases (`@docker/*`, `@ui/*`, `@utils/*`, `@models/
 - **Status-driven coloring** for containers goes through `src/utils/status.ts` (`statusDot`, `statusLabel`, `colorByStatus`, `isActive`, `cpuColor`, `memColor`, `formatCpuCell`, `formatMemCell`).
 - **Shared widget factories** in `src/ui/widgets.ts` (`createListWidget`, `createHeaderBar`, `createCenteredMessage`, `listSelected`) — use them instead of re-rolling `blessed.list` config.
 - **Key handlers** registered with `screen.key()` when a widget is shown **must** be removed with `screen.removeKey()` when it hides — otherwise they leak across views.
+- **Tabs never fetch.** `src/ui/app.ts` is the only module that imports `list*` from `@docker/*`; it owns every listing and pushes results in through `setData`. Mutations go through the `RunMutation` callback App injects into each tab, which invalidates in-flight polls (via `src/utils/refresh-gate.ts`) and refetches — otherwise a poll that straddles the mutation writes its pre-mutation snapshot back over the result. `grep -rn "listContainers\|listImages\|listVolumes\|listNetworks" src/ui` must match only `app.ts`.
 
 ## Tests
 
@@ -61,6 +62,8 @@ Vitest, with `tests/` mirroring `src/`. We test:
 - Pure transformations from dockerode payloads (`toContainerInfo`, `toContainerStats`).
 
 We intentionally **do not** test blessed widgets (they need a real terminal) or thin try/catch shells around dockerode IO (testing them tests the mock). When you add a new pure utility, add tests next to it.
+
+The one deliberate exception is `tests/ui/resource-list-tab.test.ts`: the stale-poll regression it guards lives in the seam between a tab and App's poller, so it has to drive a real tab. It builds the screen with injected `PassThrough` streams (`isTTY`, explicit `columns`/`rows`, stubbed `setRawMode`) — under a pipe blessed reports 1×1 and layout-dependent code degenerates. Keep new widget tests to that bar: only when the behaviour cannot be reached from a pure unit.
 
 ```bash
 npm test               # one-shot

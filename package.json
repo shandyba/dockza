@@ -1,6 +1,6 @@
 {
   "name": "dockza.app",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A lightweight terminal UI for Docker — manage containers, images, volumes, and networks without leaving your terminal",
   "bin": {
     "dockza": "dist/cli.js"

@@ -1,7 +1,6 @@
 import blessed from 'neo-blessed';
 import {
   killContainer,
-  listContainers,
   removeContainer,
   restartContainer,
   startContainer,
@@ -9,18 +8,17 @@ import {
 } from '@docker/containers';
 import type { ContainerInfo, ContainerStats } from '@models/docker';
 import { C } from '@theme';
-import { groupIntoStacks, type Stack } from '@utils/stacks';
+import type { Stack } from '@utils/stacks';
 import { isActive } from '@utils/status';
 import { openExternalShell } from '@utils/external-terminal';
 import { ContainerDetail } from '@ui/containers/container-detail';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
 import { LogViewer } from '@ui/containers/log-viewer';
 import { StackTree, type StackTreeSelection } from '@ui/stacks/stack-tree';
-import type { Dims } from '@ui/widgets';
+import type { Dims, RunMutation } from '@ui/widgets';
 
 type ErrorHandler = (message: string) => void;
 type NavigateHandler = (sel: StackTreeSelection) => void;
-type StackUpdateHandler = (stacks: Stack[]) => void;
 type DetailOpenHandler = () => void;
 type LogOpenHandler = () => void;
 type LogFollowHandler = (following: boolean) => void;
@@ -43,12 +41,15 @@ export class StacksTab {
 
   private errorHandlers: ErrorHandler[] = [];
   private navigateHandlers: NavigateHandler[] = [];
-  private stackUpdateHandlers: StackUpdateHandler[] = [];
   private detailOpenHandlers: DetailOpenHandler[] = [];
   private logOpenHandlers: LogOpenHandler[] = [];
   private logFollowHandlers: LogFollowHandler[] = [];
 
-  constructor(screen: blessed.Widgets.Screen, dims: Dims) {
+  constructor(
+    screen: blessed.Widgets.Screen,
+    dims: Dims,
+    private readonly runMutation: RunMutation,
+  ) {
     this.screen = screen;
 
     this.wrapper = blessed.box({
@@ -111,23 +112,15 @@ export class StacksTab {
 
   on(event: 'error', handler: ErrorHandler): void;
   on(event: 'navigate', handler: NavigateHandler): void;
-  on(event: 'stack-update', handler: StackUpdateHandler): void;
   on(event: 'detail-open', handler: DetailOpenHandler): void;
   on(event: 'log-open', handler: LogOpenHandler): void;
   on(event: 'log-follow-change', handler: LogFollowHandler): void;
   on(
-    event: 'error' | 'navigate' | 'stack-update' | 'detail-open' | 'log-open' | 'log-follow-change',
-    handler:
-      | ErrorHandler
-      | NavigateHandler
-      | StackUpdateHandler
-      | DetailOpenHandler
-      | LogOpenHandler
-      | LogFollowHandler,
+    event: 'error' | 'navigate' | 'detail-open' | 'log-open' | 'log-follow-change',
+    handler: ErrorHandler | NavigateHandler | DetailOpenHandler | LogOpenHandler | LogFollowHandler,
   ): void {
     if (event === 'error') this.errorHandlers.push(handler as ErrorHandler);
     else if (event === 'navigate') this.navigateHandlers.push(handler as NavigateHandler);
-    else if (event === 'stack-update') this.stackUpdateHandlers.push(handler as StackUpdateHandler);
     else if (event === 'detail-open') this.detailOpenHandlers.push(handler as DetailOpenHandler);
     else if (event === 'log-open') this.logOpenHandlers.push(handler as LogOpenHandler);
     else this.logFollowHandlers.push(handler as LogFollowHandler);
@@ -220,9 +213,9 @@ export class StacksTab {
     if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
   }
 
-  setData(containers: ContainerInfo[], stacks?: Stack[]): void {
+  setData(containers: ContainerInfo[], stacks: Stack[]): void {
     this.containers = containers;
-    this.stacks = stacks ?? groupIntoStacks(containers);
+    this.stacks = stacks;
     this.tree.setData(this.stacks, this.statsCache);
 
     if (this.containerDetail.isVisible()) {
@@ -237,7 +230,6 @@ export class StacksTab {
       }
     }
 
-    this.stackUpdateHandlers.forEach((h) => h(this.stacks));
     this.emitNavigate();
   }
 
@@ -255,11 +247,6 @@ export class StacksTab {
 
   redraw(): void {
     this.tree.redraw();
-  }
-
-  async refresh(): Promise<void> {
-    const containers = await listContainers();
-    this.setData(containers);
   }
 
   private emitNavigate(): void {
@@ -383,8 +370,7 @@ export class StacksTab {
       return;
     }
     if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    void startContainer(c.id)
-      .then(() => this.refresh())
+    void this.runMutation(() => startContainer(c.id))
       .catch((err: unknown) => this.emitError(err))
       .finally(() => {
         this.tree.focus();
@@ -419,8 +405,7 @@ export class StacksTab {
       message,
       danger,
       onConfirm: () => {
-        void action()
-          .then(() => this.refresh())
+        void this.runMutation(action)
           .catch((err: unknown) => this.emitError(err))
           .finally(() => {
             this.tree.focus();

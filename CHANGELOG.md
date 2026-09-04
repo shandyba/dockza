@@ -7,6 +7,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **Deleted rows came back.** Removing an image (and likewise a volume or network)
+  made the row vanish and then reappear a few hundred milliseconds later, even
+  though Docker had really deleted it; it stayed on screen until the next poll.
+  A background poll issued *before* the deletion landed *after* it and wrote its
+  pre-delete snapshot over the fresh list. The same race hit container actions on
+  the Containers and Stacks views, where a stopped container would flip back to
+  `running` for a few seconds. Listings are now owned solely by the polling loop
+  and carry a generation token, so a response a mutation has outraced is discarded
+  instead of applied.
+- **Side-rail and top-bar counters desynced from the list after any action.** The
+  rail could report N images while the list showed N-1, and stopping a container
+  from the Stacks view recomputed the top-bar running/stopped/errored counts from
+  a stale container array — producing numbers that were wrong, not merely late.
+  A mutation now refreshes the list, both container views and every counter together.
+- **Resizing the terminal could undo a container action.** The Containers list was
+  repainted on resize from a cache the action never updated, so a removed container
+  reappeared when the window changed size.
+
 ## [0.2.1] - 2026-09-02
 
 ### Fixed

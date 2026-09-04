@@ -9,6 +9,9 @@ export interface Dims {
   height: number | string;
 }
 
+/** Runs a docker mutation and refetches the affected data before resolving. Supplied by App. */
+export type RunMutation = (action: () => Promise<void>) => Promise<void>;
+
 interface ListOptions {
   top?: number | string;
   left?: number | string;

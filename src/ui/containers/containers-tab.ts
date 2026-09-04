@@ -1,7 +1,6 @@
 import type blessed from 'neo-blessed';
 import {
   killContainer,
-  listContainers,
   removeContainer,
   restartContainer,
   startContainer,
@@ -16,7 +15,7 @@ import { ContainerDetail } from '@ui/containers/container-detail';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
 import { LogViewer } from '@ui/containers/log-viewer';
 
-import type { Dims } from '@ui/widgets';
+import type { Dims, RunMutation } from '@ui/widgets';
 
 type ErrorHandler = (message: string) => void;
 type ContainerSelectHandler = (container: ContainerInfo | null) => void;
@@ -63,8 +62,7 @@ export class ContainersTab {
       message,
       danger,
       onConfirm: () => {
-        void action()
-          .then(() => this.refresh())
+        void this.runMutation(action)
           .catch((err: unknown) => this.emitError(err))
           .finally(() => {
             this.containerList.focus();
@@ -119,8 +117,7 @@ export class ContainersTab {
       return;
     }
     if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    void startContainer(c.id)
-      .then(() => this.refresh())
+    void this.runMutation(() => startContainer(c.id))
       .catch((err: unknown) => this.emitError(err))
       .finally(() => {
         this.containerList.focus();
@@ -153,7 +150,11 @@ export class ContainersTab {
     this.screen.render();
   };
 
-  constructor(screen: blessed.Widgets.Screen, dims: Dims) {
+  constructor(
+    screen: blessed.Widgets.Screen,
+    dims: Dims,
+    private readonly runMutation: RunMutation,
+  ) {
     this.screen = screen;
 
     this.containerList = new ContainerList(screen, dims);
@@ -277,6 +278,11 @@ export class ContainersTab {
     this.containerList.list.select(Math.min(cursorPos, Math.max(0, this.containers.length - 1)));
   }
 
+  /** Re-render the current dataset (useful after terminal resize). */
+  redraw(): void {
+    this.setData(this.containers);
+  }
+
   setData(containers: ContainerInfo[]): void {
     const cursorId = this.containerList.getSelected()?.id ?? this.containers[this.selectedIndex]?.id;
 
@@ -321,11 +327,6 @@ export class ContainersTab {
       const container = this.containers.find((c) => c.id === id);
       if (container) this.containerDetail.update(container, stats);
     }
-  }
-
-  async refresh(): Promise<void> {
-    const containers = await listContainers();
-    this.setData(containers);
   }
 
   private isModalOpen(): boolean {

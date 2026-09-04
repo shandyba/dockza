@@ -8,6 +8,7 @@ import {
   createListWidget,
   listSelected,
   type Dims,
+  type RunMutation,
 } from '@ui/widgets';
 
 type ErrorHandler = (message: string) => void;
@@ -23,7 +24,6 @@ export interface ResourceColumn<T> {
 }
 
 export interface ResourceListConfig<T> {
-  list: () => Promise<T[]>;
   remove: (item: T) => Promise<void>;
   /** Stable key used to preserve the selection across refreshes. */
   getKey: (item: T) => string;
@@ -40,7 +40,11 @@ export interface ResourceListConfig<T> {
  * Shared machinery for the flat "resource list" tabs (Images / Volumes / Networks):
  * a header bar over a bordered list, `d`-to-delete with a confirm dialog and guards,
  * selection preservation across polls, and navigate/error events. Concrete tabs supply
- * only their columns, guards, confirm strings, and list/remove functions via config.
+ * only their columns, guards, confirm strings, and remove function via config.
+ *
+ * The tab never fetches: App owns the listings and pushes them in via `setData`, and
+ * deletions go through the injected `runMutation` so an in-flight poll can't resurrect
+ * the removed row.
  */
 export class ResourceListTab<T> {
   private screen: blessed.Widgets.Screen;
@@ -74,9 +78,7 @@ export class ResourceListTab<T> {
       message: `${this.config.confirmLabel(item)} will be permanently deleted.`,
       danger: true,
       onConfirm: () => {
-        void this.config
-          .remove(item)
-          .then(() => this.refresh())
+        void this.runMutation(() => this.config.remove(item))
           .catch((err: unknown) => this.emitError(err))
           .finally(() => {
             this.list.focus();
@@ -94,6 +96,7 @@ export class ResourceListTab<T> {
     screen: blessed.Widgets.Screen,
     dims: Dims,
     private readonly config: ResourceListConfig<T>,
+    private readonly runMutation: RunMutation,
   ) {
     this.screen = screen;
 
@@ -180,11 +183,6 @@ export class ResourceListTab<T> {
     }
 
     this.emitNavigate();
-  }
-
-  async refresh(): Promise<void> {
-    const items = await this.config.list();
-    this.setData(items);
   }
 
   /** Re-render the current dataset (useful after terminal resize). */

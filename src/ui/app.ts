@@ -7,10 +7,12 @@ import { listNetworks } from '@docker/networks';
 import type { ContainerInfo } from '@models/docker';
 import { groupIntoStacks, type Stack } from '@utils/stacks';
 import { isActive } from '@utils/status';
+import { RefreshGate } from '@utils/refresh-gate';
 import { TopBar } from '@ui/top-bar';
 import { Footer } from '@ui/footer';
 import type { FooterContext } from '@ui/footer';
 import { SideRail, RAIL_WIDTH, type ViewId } from '@ui/side-rail';
+import type { RunMutation } from '@ui/widgets';
 import { HelpOverlay } from '@ui/help-overlay';
 import { StacksTab } from '@ui/stacks/stacks-tab';
 import type { StackTreeSelection } from '@ui/stacks/stack-tree';
@@ -49,9 +51,15 @@ export class App {
   private pollTimers: NodeJS.Timeout[] = [];
   private footerMsgTimer: NodeJS.Timeout | null = null;
   private exitResolve: (() => void) | null = null;
-  private pollingContainers = false;
-  private pollingResources = false;
   private pollingStats = false;
+
+  // One gate per listing so a mutation only invalidates the data it can affect — deleting an
+  // image must not force a `listVolumes()` (which pays for a `docker system df`), and a slow
+  // listing can no longer delay the others the way the old shared `allSettled` did.
+  private readonly containersGate = new RefreshGate((token) => this.fetchContainers(token));
+  private readonly imagesGate = new RefreshGate((token) => this.fetchImages(token));
+  private readonly volumesGate = new RefreshGate((token) => this.fetchVolumes(token));
+  private readonly networksGate = new RefreshGate((token) => this.fetchNetworks(token));
 
   constructor() {
     this.screen = blessed.screen({
@@ -74,11 +82,12 @@ export class App {
     this.rail = new SideRail(this.screen);
     this.helpOverlay = new HelpOverlay(this.screen);
 
-    this.stacksTab = new StacksTab(this.screen, tabDims);
-    this.containersTab = new ContainersTab(this.screen, tabDims);
-    this.imagesTab = new ImagesTab(this.screen, tabDims);
-    this.volumesTab = new VolumesTab(this.screen, tabDims);
-    this.networksTab = new NetworksTab(this.screen, tabDims);
+    const onContainers = this.mutationRunner(this.containersGate);
+    this.stacksTab = new StacksTab(this.screen, tabDims, onContainers);
+    this.containersTab = new ContainersTab(this.screen, tabDims, onContainers);
+    this.imagesTab = new ImagesTab(this.screen, tabDims, this.mutationRunner(this.imagesGate));
+    this.volumesTab = new VolumesTab(this.screen, tabDims, this.mutationRunner(this.volumesGate));
+    this.networksTab = new NetworksTab(this.screen, tabDims, this.mutationRunner(this.networksGate));
 
     this.wireEvents();
     this.setupKeys();
@@ -110,11 +119,6 @@ export class App {
     });
 
     this.stacksTab.on('error', (msg) => this.setFooterMessage(msg, 'red'));
-    this.stacksTab.on('stack-update', (stacks) => {
-      this.stacks = stacks;
-      this.rail.setStacks(stacks);
-      this.refreshTopBarCounters();
-    });
     this.stacksTab.on('navigate', (sel) => {
       if (this.activeView !== 'stacks') return;
       this.footer.setContext(this.contextForStacks(sel));
@@ -187,6 +191,22 @@ export class App {
         this.render();
       }
     });
+  }
+
+  /**
+   * How every tab runs a docker mutation. Invalidating on both sides of the action is what
+   * stops a deleted row coming back: the leading `invalidate` kills fetches issued *before*
+   * the mutation, and `force` kills those issued *during* it before re-reading the truth.
+   */
+  private mutationRunner(gate: RefreshGate): RunMutation {
+    return async (action) => {
+      gate.invalidate();
+      try {
+        await action();
+      } finally {
+        await gate.force();
+      }
+    };
   }
 
   private contextForStacks(sel: StackTreeSelection): FooterContext {
@@ -374,15 +394,15 @@ export class App {
     this.showTab('stacks');
     this.render();
 
-    await this.pollContainers();
-    await this.pollResources();
+    await this.containersGate.poll();
+    await Promise.all(this.resourceGates().map((gate) => gate.poll()));
 
     this.pollTimers.push(
       setInterval(() => {
-        void this.pollContainers();
+        void this.containersGate.poll();
       }, 5000),
       setInterval(() => {
-        void this.pollResources();
+        for (const gate of this.resourceGates()) void gate.poll();
       }, 10000),
       setInterval(() => {
         void this.pollStats();
@@ -394,72 +414,76 @@ export class App {
     });
   }
 
-  private async pollContainers(): Promise<void> {
-    if (this.pollingContainers) return;
-    this.pollingContainers = true;
+  private resourceGates(): RefreshGate[] {
+    return [this.imagesGate, this.volumesGate, this.networksGate];
+  }
+
+  private async fetchContainers(token: number): Promise<void> {
     try {
       const containers = await listContainers();
-      this.containers = containers;
-      this.stacks = groupIntoStacks(containers);
-      this.stacksTab.setData(containers, this.stacks);
-      this.containersTab.setData(containers);
-      this.rail.setStacks(this.stacks);
-      this.refreshTopBarCounters();
-      this.refreshRailCounts();
-      this.footer.noteRefresh();
-      this.render();
+      if (!this.containersGate.isCurrent(token)) return;
+      this.applyContainers(containers);
     } catch (err) {
-      this.setFooterMessage(err instanceof Error ? err.message : String(err), 'red');
-    } finally {
-      this.pollingContainers = false;
+      if (!this.containersGate.isCurrent(token)) return;
+      this.setFooterMessage(msgOf(err), 'red');
     }
   }
 
-  private async pollResources(): Promise<void> {
-    if (this.pollingResources) return;
-    this.pollingResources = true;
+  private applyContainers(containers: ContainerInfo[]): void {
+    this.containers = containers;
+    this.stacks = groupIntoStacks(containers);
+    this.stacksTab.setData(containers, this.stacks);
+    this.containersTab.setData(containers);
+    this.rail.setStacks(this.stacks);
+    this.refreshTopBarCounters();
+    this.refreshRailCounts();
+    this.footer.noteRefresh();
+    this.render();
+  }
+
+  private async fetchImages(token: number): Promise<void> {
     try {
-      // Settle each resource independently so one listing's failure doesn't blank the others.
-      const [imagesR, volumesR, networksR] = await Promise.allSettled([
-        listImages(),
-        listVolumes(),
-        listNetworks(),
-      ]);
-      const errors: string[] = [];
-
-      if (imagesR.status === 'fulfilled') {
-        this.imageCount = imagesR.value.length;
-        this.imagesTab.setData(imagesR.value);
-      } else {
-        errors.push(msgOf(imagesR.reason));
-      }
-
-      if (volumesR.status === 'fulfilled') {
-        this.volumeCount = volumesR.value.length;
-        this.volumesTab.setData(volumesR.value);
-      } else {
-        errors.push(msgOf(volumesR.reason));
-      }
-
-      if (networksR.status === 'fulfilled') {
-        this.networkCount = networksR.value.length;
-        this.networksTab.setData(networksR.value);
-      } else {
-        errors.push(msgOf(networksR.reason));
-      }
-
-      this.refreshRailCounts();
-      if (errors.length > 0) {
-        this.setFooterMessage(errors[0], 'red');
-      } else {
-        this.footer.noteRefresh();
-      }
-      this.render();
+      const images = await listImages();
+      if (!this.imagesGate.isCurrent(token)) return;
+      this.imageCount = images.length;
+      this.imagesTab.setData(images);
+      this.afterResourceFetch();
     } catch (err) {
+      if (!this.imagesGate.isCurrent(token)) return;
       this.setFooterMessage(msgOf(err), 'red');
-    } finally {
-      this.pollingResources = false;
     }
+  }
+
+  private async fetchVolumes(token: number): Promise<void> {
+    try {
+      const volumes = await listVolumes();
+      if (!this.volumesGate.isCurrent(token)) return;
+      this.volumeCount = volumes.length;
+      this.volumesTab.setData(volumes);
+      this.afterResourceFetch();
+    } catch (err) {
+      if (!this.volumesGate.isCurrent(token)) return;
+      this.setFooterMessage(msgOf(err), 'red');
+    }
+  }
+
+  private async fetchNetworks(token: number): Promise<void> {
+    try {
+      const networks = await listNetworks();
+      if (!this.networksGate.isCurrent(token)) return;
+      this.networkCount = networks.length;
+      this.networksTab.setData(networks);
+      this.afterResourceFetch();
+    } catch (err) {
+      if (!this.networksGate.isCurrent(token)) return;
+      this.setFooterMessage(msgOf(err), 'red');
+    }
+  }
+
+  private afterResourceFetch(): void {
+    this.refreshRailCounts();
+    this.footer.noteRefresh();
+    this.render();
   }
 
   private async pollStats(): Promise<void> {
@@ -522,7 +546,7 @@ export class App {
 
   private handleResize(): void {
     this.stacksTab.redraw();
-    this.containersTab.setData(this.containers);
+    this.containersTab.redraw();
     this.imagesTab.redraw();
     this.volumesTab.redraw();
     this.networksTab.redraw();
@@ -534,6 +558,9 @@ export class App {
   private stopPolling(): void {
     for (const timer of this.pollTimers) clearInterval(timer);
     this.pollTimers = [];
+    // Neutralize in-flight fetches so none of them renders into a destroyed screen.
+    this.containersGate.invalidate();
+    for (const gate of this.resourceGates()) gate.invalidate();
     this.footer.stopTicker();
   }
 
