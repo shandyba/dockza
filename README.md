@@ -53,7 +53,7 @@ dockza
 
 ## Requirements
 
-- Node.js **20** or later
+- Node.js **24** or later
 - A running Docker daemon (Docker Desktop on macOS/Windows, Docker Engine on Linux, or any podman/rootless setup)
 - A **256-color** or **truecolor** terminal (`TERM=xterm-256color` or `COLORTERM=truecolor`)
 

@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14.0; Node 24
       # ships npm 11.19+. No dependency cache: release builds resolve fresh.

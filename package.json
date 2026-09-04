@@ -1,6 +1,6 @@
 {
   "name": "dockza.app",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "A lightweight terminal UI for Docker — manage containers, images, volumes, and networks without leaving your terminal",
   "bin": {
     "dockza": "dist/cli.js"
@@ -12,7 +12,7 @@
     "NOTICE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "license": "MIT",
   "author": "Dmytro Shandyba <shandyba@gmail.com>",
@@ -62,7 +62,7 @@
   "devDependencies": {
     "@types/blessed": "^0.1.25",
     "@types/dockerode": "^4.0.1",
-    "@types/node": "^20.14.0",
+    "@types/node": "^24.0.0",
     "@vitest/coverage-v8": "^4.1.6",
     "eslint": "^9.13.0",
     "eslint-config-prettier": "^9.1.0",
