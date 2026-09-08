@@ -77,8 +77,8 @@ export class TopBar {
 
   private buildRight(width: number): string {
     const counters =
-      `${t.green('●')}${t.fg(String(this.counters.running))} ${t.dim('running')}` +
-      `  ${t.red('●')}${t.fg(String(this.counters.errored))} ${t.dim('err')}` +
+      `${t.green('●')} ${t.fg(String(this.counters.running))} ${t.dim('running')}` +
+      `  ${t.red('●')} ${t.fg(String(this.counters.errored))} ${t.dim('err')}` +
       `  ${t.fg(String(this.counters.stopped))} ${t.dim('stop')}`;
 
     const stats = this.stats
