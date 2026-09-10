@@ -139,9 +139,27 @@ npm run changelog 0.2.3           # print one section (what CI gates on)
 
 ### House style for changelog entries
 
-Group by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) category — `Fixed`, `Security`, `Changed`, `Added`, `Removed`, `Deprecated` — omitting any that are empty. Each entry opens with a bold sentence naming the user-visible symptom, then the mechanism, then who it affected:
+Group by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) category — `Fixed`, `Security`, `Changed`, `Added`, `Removed`, `Deprecated` — omitting any that are empty. Each entry opens in bold with the user-visible symptom, then gives the cause and the fix.
 
-> - **Deleted rows came back.** Removing an image (and likewise a volume or network) made the row vanish and then reappear a few hundred milliseconds later… A background poll issued *before* the deletion landed *after* it and wrote its pre-delete snapshot over the fresh list. Listings are now owned solely by the polling loop and carry a generation token, so a response a mutation has outraced is discarded instead of applied.
+**Keep entries short.** One sentence is the default. Two when cause and fix both need saying, three only for a regression with real blast radius. Budget roughly 40 words; 60 is the ceiling. A patch release's whole section should be scannable in about fifteen seconds — someone deciding whether to upgrade, not someone debugging.
+
+A trivial fix is one clause:
+
+> - **Top-bar counters ran into their status dots** — `●7` now renders as `● 7`.
+
+A real regression still fits in three sentences:
+
+> - **Deleted rows came back.** A background poll straddling the deletion wrote its stale snapshot over the fresh list, so removed images, volumes and networks reappeared for a moment — and stopped containers flipped back to `running`. Listings now carry a generation token, so an outraced response is discarded.
+
+Cut, in roughly this order:
+
+- **The second telling.** Describing the symptom in user terms and then again in code terms is the most common way these double in length. Pick one.
+- **Mechanism beyond one clause.** "A poll straddling the deletion wrote a stale snapshot back" is the whole explanation; the reader debugging it has the commit.
+- **Exhaustive enumeration** of every affected view, file or function once the pattern is clear.
+- **Hedges and qualifications** — "rather than known to be broken", "so behaviour is no longer verified". State the fact or drop it.
+- **Anything about what you didn't change**, considered, or tested.
+
+Entries in sections 0.1.0–0.2.3 run considerably longer than this; treat them as the model for *voice*, not for length.
 
 What separates this changelog from a commit log:
 
