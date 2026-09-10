@@ -9,6 +9,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Top-bar counters ran into their status dots.** The running and errored counts in
+  the top right rendered as `●7` and `●1`, with no gap between the coloured dot and
+  the number. Both now carry a space, matching the stopped counter, which has no dot.
+
+## [0.2.3] - 2026-09-04
+
+### Changed
+
+- **Node.js 24 is now the minimum.** `engines.node` moves from `>=20` to `>=24`, and
+  CI drops its Node 20 and 22 legs — the matrix is now Node 24 across Ubuntu, macOS
+  and Windows. Nothing in the source requires 24 specifically; the bump aligns the
+  supported range with what CI actually exercises, so behaviour on 20 and 22 is no
+  longer verified rather than known to be broken. npm warns instead of refusing on an
+  engine mismatch, so existing installs on older Node keep running untested.
+  `@types/node` moves 20.x → 24.x to match, and the README requirement is updated.
+
+## [0.2.2] - 2026-09-04
+
+### Fixed
+
 - **Deleted rows came back.** Removing an image (and likewise a volume or network)
   made the row vanish and then reappear a few hundred milliseconds later, even
   though Docker had really deleted it; it stayed on screen until the next poll.
@@ -144,7 +164,9 @@ First public release on npm, as `docktui`.
 
 Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
 
-[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/shandyba/dockza/releases/tag/v0.2.3
+[0.2.2]: https://github.com/shandyba/dockza/releases/tag/v0.2.2
 [0.2.1]: https://github.com/shandyba/dockza/releases/tag/v0.2.1
 [0.2.0]: https://github.com/shandyba/dockza/releases/tag/v0.2.0
 [0.1.1]: https://github.com/0xShady/docktui/releases/tag/v0.1.1
