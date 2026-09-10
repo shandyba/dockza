@@ -18,6 +18,17 @@ module.exports = tseslint.config(
     },
   },
   {
+    // Release tooling: plain Node ESM, run directly by npm scripts and CI, never bundled.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { console: 'readonly', process: 'readonly' },
+    },
+    rules: {
+      'eqeqeq': ['error', 'always'],
+      'prefer-const': 'error',
+    },
+  },
+  {
     // Tests get the same rules but with relaxed `any` (mocks need it freely).
     files: ['tests/**/*.ts'],
     rules: {

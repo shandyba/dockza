@@ -90,7 +90,7 @@ npm run build
 
 1. Fork and create a feature branch off `main`.
 2. Keep the diff focused — one logical change per PR. If your branch grows tendrils, split it.
-3. Update [`CHANGELOG.md`](./CHANGELOG.md) under `[Unreleased]` describing the user-visible change (skip for pure refactors or doc-only edits).
+3. **Don't edit [`CHANGELOG.md`](./CHANGELOG.md).** Release notes are written at release time from the full diff since the last tag (see [Releasing](#releasing)), and `[Unreleased]` is rewritten wholesale each time — so a hand-written entry there would be discarded. Instead, describe the user-visible impact in your PR description; that is what the release notes are drawn from.
 4. If the change adds a new dependency, explain why in the PR description — we keep the dep tree small on purpose.
 5. Open the PR. Describe **what** changed and **why** (the code shows the what; the why is what reviewers need).
 6. CI must be green before merge.
@@ -98,6 +98,66 @@ npm run build
 ## Commit messages
 
 No strict convention enforced, but short imperative subjects help (`fix log-viewer race on close`, `add isConfirmOpen to ImagesTab`, `remove deprecated heartbeat scaffolding`). Reference issues with `Fixes #N` where applicable.
+
+## Releasing
+
+Maintainer-only. `CHANGELOG.md` is the single source of truth: the npm release, the GitHub Release page and any future site listing are all derived from it, so nothing ships without notes.
+
+**1. Write the notes.** Rewrite the `[Unreleased]` section from the full diff since the last release tag, following the house style below:
+
+```bash
+git log --format='%h %s' "$(git describe --tags --abbrev=0)..HEAD"
+git diff "$(git describe --tags --abbrev=0)..HEAD" -- . ':!package-lock.json' ':!coverage' ':!dist'
+```
+
+**2. Promote and tag:**
+
+```bash
+npm run release 0.2.4           # dates the section, rewrites link refs, bumps both manifests
+git commit -am "[Release] v0.2.4"
+git tag v0.2.4 && git push --follow-tags
+```
+
+CI then verifies the tag matches `package.json`, verifies `CHANGELOG.md` has a non-empty section for that version, publishes to npm, and creates the GitHub Release using that section as the body.
+
+**`[Unreleased]` is derived, not accumulated.** It is rewritten wholesale from `<latest tag>..HEAD` each time rather than appended to, which is why it cannot drift out of date the way it did at 0.2.2 and 0.2.3 — both of which shipped to npm with no changelog entry at all. Rewrite it whenever you want to see what is pending.
+
+**If the gate fails**, the tag already exists but nothing was published. Delete it, fix the changelog, re-tag:
+
+```bash
+git tag -d v0.2.4 && git push --delete origin v0.2.4
+```
+
+Useful directly:
+
+```bash
+npm run release 0.2.4 --dry-run   # preview the promotion, write nothing
+npm run changelog 0.2.3           # print one section (what CI gates on)
+```
+
+### House style for changelog entries
+
+Group by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) category — `Fixed`, `Security`, `Changed`, `Added`, `Removed`, `Deprecated` — omitting any that are empty. Each entry opens with a bold sentence naming the user-visible symptom, then the mechanism, then who it affected:
+
+> - **Deleted rows came back.** Removing an image (and likewise a volume or network) made the row vanish and then reappear a few hundred milliseconds later… A background poll issued *before* the deletion landed *after* it and wrote its pre-delete snapshot over the fresh list. Listings are now owned solely by the polling loop and carry a generation token, so a response a mutation has outraced is discarded instead of applied.
+
+What separates this changelog from a commit log:
+
+- **Lead with the symptom, not the change.** "Deleted rows came back", not "added a generation token to the refresh gate". The reader is a user deciding whether to upgrade.
+- **One narrative per user-visible problem, not one per commit.** Three commits fixing one race is one entry. A commit that only refactors is no entry at all.
+- **Say who was affected and how badly** where the code supports it — "every user with a portless container", "anyone following the npm install instructions verbatim". Don't guess at blast radius the diff doesn't show.
+- **Note the affected version range** when a bug predates the current release.
+- **Mechanism, briefly** — enough that a reader understands why it happened, not a code tour.
+- Purely internal work (tests, CI, refactors) goes under `### Project meta`, and only when genuinely notable.
+- Never write roadmap items, "coming soon", or anything the diff doesn't support.
+- Match the surrounding prose: em dashes, inline code for identifiers, `GiB`/`MiB` sizes, `4d 2h` uptimes.
+
+Useful directly:
+
+```bash
+npm run release 0.2.4 --dry-run   # preview the promotion, write nothing
+npm run changelog 0.2.3           # print one section (what CI gates on)
+```
 
 ## Reporting bugs
 

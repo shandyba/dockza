@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write # required to create the GitHub Release
   id-token: write # required for trusted publishing (OIDC)
 
 jobs:
@@ -34,6 +34,13 @@ jobs:
             exit 1
           fi
 
+      # The release gate: no notes, no publish. Fails when CHANGELOG.md has no
+      # section for this version, or the section has no entries under it.
+      # `npm run release <version>` writes both the section and the version bump,
+      # so reaching here without notes means the manifest was edited by hand.
+      - name: Verify CHANGELOG has notes for this version
+        run: node scripts/changelog.mjs extract "${GITHUB_REF_NAME#v}" > /dev/null
+
       # 0.2.0 was published by hand before trusted publishing was configured,
       # so tagging it retroactively must not fail the run.
       - name: Check whether this version is already published
@@ -58,3 +65,19 @@ jobs:
       - name: Publish to npm
         if: steps.check.outputs.skip == 'false'
         run: npm publish --access public
+
+      # The changelog section *is* the release body, so what GitHub shows and what
+      # the repo records can never drift. Runs even when the publish was skipped,
+      # so a retroactively tagged version still gets its release page.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::notice::Release $GITHUB_REF_NAME already exists; leaving it untouched."
+            exit 0
+          fi
+          node scripts/changelog.mjs extract "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md"
