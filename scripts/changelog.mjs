@@ -184,9 +184,11 @@ function promote(version, { dryRun, date }) {
   console.log(`  CHANGELOG.md      [${UNRELEASED}] -> [${version}]`);
   console.log(`  package.json      ${previousVersion} -> ${version}`);
   console.log(`  package-lock.json ${version}`);
+  // Push both refs explicitly: --follow-tags only pushes annotated tags, so with a
+  // lightweight tag it silently skips it, exits 0, and the release never starts.
   console.log(`\nNext:`);
   console.log(`  git commit -am "[Release] v${version}"`);
-  console.log(`  git tag v${version} && git push --follow-tags`);
+  console.log(`  git tag v${version} && git push origin main v${version}`);
 }
 
 function usage() {

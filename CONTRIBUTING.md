@@ -115,8 +115,10 @@ git diff "$(git describe --tags --abbrev=0)..HEAD" -- . ':!package-lock.json' ':
 ```bash
 npm run release 0.2.4           # dates the section, rewrites link refs, bumps both manifests
 git commit -am "[Release] v0.2.4"
-git tag v0.2.4 && git push --follow-tags
+git tag v0.2.4 && git push origin main v0.2.4
 ```
+
+Push both refs explicitly. `git push --follow-tags` pushes *annotated* tags only, and these are lightweight — it skips them and still exits 0, so the release silently never starts.
 
 CI then verifies the tag matches `package.json`, verifies `CHANGELOG.md` has a non-empty section for that version, publishes to npm, and creates the GitHub Release using that section as the body.
 
