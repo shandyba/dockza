@@ -39,9 +39,9 @@ export function createListWidget(parent: Parent, opts: ListOptions = {}): blesse
     scrollbar: { ch: '│', style: { fg: C.comment } },
     border: { type: 'line' },
     style: {
-      selected: { bg: C.selection, fg: C.fg },
+      selected: { bg: C.bgSel, fg: C.fg },
       item: { fg: C.fg },
-      border: { fg: C.selection },
+      border: { fg: C.surface },
       focus: { border: { fg: C.purple } },
     },
     tags: true,
@@ -56,7 +56,7 @@ export function createHeaderBar(parent: Parent, hidden = false): blessed.Widgets
     width: '100%',
     height: 1,
     tags: true,
-    style: { bg: C.selection },
+    style: { bg: C.surface },
     hidden,
   });
 }

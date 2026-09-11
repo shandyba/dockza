@@ -12,9 +12,18 @@ import {
   type Dims,
 } from '@ui/widgets';
 
+/** Columns a service row is pushed right of its stack header, so nesting reads at a glance. */
+const NEST_STEP = 3;
+
+/** Width of a stack's `▣ ` marker — the offset from its gutter to the stack name. */
+const GLYPH_W = 2;
+
 export interface ColumnSpec {
   totalWidth: number;
+  /** Gutter before a stack header: ` ▾ `. */
   indentW: number;
+  /** Gutter before a service row: the stack gutter plus the nesting step (`   ├─ `). */
+  childIndentW: number;
   nameW: number;
   imageW: number;
   statusW: number;
@@ -28,6 +37,7 @@ export interface ColumnSpec {
 
 export function computeColumns(width: number): ColumnSpec {
   const indentW = 3;
+  const childIndentW = indentW + NEST_STEP;
   const statusW = 16;
   const cpuW = 8;
   const memW = 8;
@@ -38,6 +48,9 @@ export function computeColumns(width: number): ColumnSpec {
   const showCpu = width >= 55;
 
   const fixedAfterIndent = statusW + (showCpu ? cpuW : 0) + (showMem ? memW : 0) + (showPorts ? portsW : 0);
+  // Both name and image are measured from the end of the *stack* gutter. A service row starts
+  // `NEST_STEP` columns later and takes those columns back out of its image cell, so either
+  // kind of row ends in the same place and STATE stays aligned down the tree.
   const flex = Math.max(18, width - indentW - fixedAfterIndent);
   const nameW = Math.max(10, Math.floor(flex * 0.55));
   const imageW = Math.max(8, flex - nameW);
@@ -45,6 +58,7 @@ export function computeColumns(width: number): ColumnSpec {
   return {
     totalWidth: width,
     indentW,
+    childIndentW,
     nameW,
     imageW,
     statusW,
@@ -68,6 +82,8 @@ interface ServiceRow {
   kind: 'service';
   stackId: string;
   container: ContainerInfo;
+  /** Last service under its stack — draws the `└` elbow that closes the branch. */
+  last: boolean;
 }
 
 type Row = StackHeaderRow | ServiceRow;
@@ -276,9 +292,9 @@ export class StackTree {
       });
 
       if (expanded) {
-        for (const c of services) {
-          out.push({ kind: 'service', stackId: s.id, container: c });
-        }
+        services.forEach((c, i) => {
+          out.push({ kind: 'service', stackId: s.id, container: c, last: i === services.length - 1 });
+        });
       }
     }
 
@@ -286,8 +302,10 @@ export class StackTree {
   }
 
   private renderHeader(cols: ColumnSpec): void {
-    const indent = padEnd('', cols.indentW);
-    const name = padEnd(t.dim('STACK · SERVICE'), cols.nameW + cols.imageW + 1);
+    // The list draws its rows inside a border, one column right of this bar; the extra
+    // leading column plus the stack glyph's width park `STACK · SERVICE` over the names.
+    const indent = padEnd('', 1 + cols.indentW + GLYPH_W);
+    const name = padEnd(t.dim('STACK · SERVICE'), cols.nameW + cols.imageW + 1 - GLYPH_W);
     const status = padEnd(t.dim('STATE'), cols.statusW);
     const cpu = cols.showCpu ? padEnd(t.dim('CPU'), cols.cpuW) : '';
     const mem = cols.showMem ? padEnd(t.dim('MEM'), cols.memW) : '';
@@ -303,6 +321,7 @@ export class StackTree {
     const caret = row.expanded ? t.accent('▾') : t.accent('▸');
     const indent = padEnd(` ${caret}`, cols.indentW);
 
+    // Sits at the head of the branch its services hang from (see `renderService`).
     const glyph = t.accent('▣');
     const labelMax = cols.nameW + cols.imageW - 4;
     const name = truncate(row.stack.id, labelMax);
@@ -328,7 +347,10 @@ export class StackTree {
 
   private renderService(row: ServiceRow, cols: ColumnSpec): string {
     const c = row.container;
-    const indent = padEnd(` ${t.faint('└─')}`, cols.indentW);
+    // The elbow lands in the column the stack's `▣` occupies, so the branch visibly drops
+    // out of its stack and every service name sits `NEST_STEP` columns deeper than it.
+    const branch = t.faint(`${row.last ? '└' : '├'}─`);
+    const indent = padEnd(`${' '.repeat(cols.indentW)}${branch}`, cols.childIndentW);
 
     const dot = statusDot(c);
     const nameMax = Math.max(4, cols.nameW - 3);
@@ -336,9 +358,12 @@ export class StackTree {
     const nameStyled = isActive(c.status) ? t.fg(name) : t.dim(name);
     const nameCol = padEnd(`${dot} ${nameStyled}`, cols.nameW);
 
-    const imageMax = Math.max(4, cols.imageW - 1);
+    // The deeper gutter is paid for out of the image column, not the name: service names are
+    // what the eye scans, and image tags are the column that tolerates a tighter fit.
+    const imageW = cols.imageW + 1 - NEST_STEP;
+    const imageMax = Math.max(4, imageW - 2);
     const image = truncate(c.image, imageMax);
-    const imageCol = padEnd(t.dim(image), cols.imageW + 1);
+    const imageCol = padEnd(t.dim(image), imageW);
 
     const status = padEnd(this.colorStatus(c, shortStatus(c)), cols.statusW);
 

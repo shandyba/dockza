@@ -41,7 +41,7 @@ export class ConfirmDialog {
       tags: true,
       border: { type: 'line' },
       style: {
-        bg: C.selection,
+        bg: C.surface,
         border: { fg: C.purple },
       },
       hidden: true,

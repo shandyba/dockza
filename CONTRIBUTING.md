@@ -71,7 +71,7 @@ npm run test:watch     # while iterating
 npm run test:coverage  # writes ./coverage/index.html
 ```
 
-Coverage thresholds are enforced in CI (see `vitest.config.ts`). Bump them as you raise the floor — don't lower them to make a red build green.
+Coverage thresholds are enforced in CI (see `vitest.config.mts`). Bump them as you raise the floor — don't lower them to make a red build green.
 
 ## Pre-PR checklist
 

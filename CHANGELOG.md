@@ -7,6 +7,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-09-11
+
+### Fixed
+
+- **The selected row was all but invisible.** Its indigo highlight snapped to near-black
+  `#1c1c1c` under blessed's 256-colour matching, barely a shade off the background — in
+  every list view, and since 0.1.0. Lists now highlight on an indigo that survives the
+  match.
+
+### Changed
+
+- **Services now sit indented under their stack.** Every service row started in the stack
+  name's own column, leaving the elbow as the only cue that it was nested. Service rows
+  now step three columns right — `├─` on each, `└─` on the last — taking the width out of
+  the image column.
+
 ## [0.2.4] - 2026-09-11
 
 ### Fixed
@@ -166,7 +182,8 @@ First public release on npm, as `docktui`.
 
 Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
 
-[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/shandyba/dockza/releases/tag/v0.2.5
 [0.2.4]: https://github.com/shandyba/dockza/releases/tag/v0.2.4
 [0.2.3]: https://github.com/shandyba/dockza/releases/tag/v0.2.3
 [0.2.2]: https://github.com/shandyba/dockza/releases/tag/v0.2.2

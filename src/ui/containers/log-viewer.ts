@@ -78,7 +78,7 @@ export class LogViewer {
       height: 1,
       width: '100%',
       tags: true,
-      style: { bg: C.bgSel },
+      style: { bg: C.surface },
     });
 
     this.logBox = blessed.log({
