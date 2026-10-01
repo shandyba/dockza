@@ -7,6 +7,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-01
+
+### Changed
+
+- **`s` asks how far to go.** Stop stays on `y`; `d` and `v` in the same dialog remove the
+  container or take the stack down, keeping or deleting its volumes. A running container
+  is stopped gracefully before it is removed.
+
+### Added
+
+- **Act on a whole compose stack.** On a stack header or over its detail, `s`, `S`, `r`
+  and `k` stop, start, restart or kill every service — dependencies start first and stop
+  last, as compose does.
+- **Take a stack down.** `d` removes its containers and networks like
+  `docker compose down`, and `v` deletes its volumes too, as `down -v` does. Networks and
+  volumes another container still uses are kept.
+- **Remove a container with its anonymous volumes.** `v` in the remove dialog runs
+  `docker rm -v`; named volumes are never deleted.
+
 ## [0.3.2] - 2026-10-01
 
 ### Added
@@ -281,7 +300,8 @@ First public release on npm, as `docktui`.
 
 Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
 
-[Unreleased]: https://github.com/shandyba/dockza/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/shandyba/dockza/releases/tag/v0.3.3
 [0.3.2]: https://github.com/shandyba/dockza/releases/tag/v0.3.2
 [0.3.1]: https://github.com/shandyba/dockza/releases/tag/v0.3.1
 [0.3.0]: https://github.com/shandyba/dockza/releases/tag/v0.3.0
