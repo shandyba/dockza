@@ -1,25 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import type { ContainerInfo, ContainerStatus } from '@models/docker';
-import { NO_STACK, classifyContainer, groupIntoStacks } from '@utils/stacks';
+import type { ContainerInfo } from '@models/docker';
+import { NO_STACK, classifyContainer, groupIntoStacks, stackCompose } from '@utils/stacks';
+import { endpoint, makeContainer } from '../fixtures';
 
 function container(overrides: Partial<ContainerInfo> = {}): ContainerInfo {
-  return {
-    id: overrides.id ?? Math.random().toString(36).slice(2),
-    name: overrides.name ?? 'svc',
-    image: overrides.image ?? 'alpine:latest',
-    status: (overrides.status ?? 'running') as ContainerStatus,
-    exitCode: overrides.exitCode ?? 0,
-    uptime: overrides.uptime ?? '5m 0s',
-    ports: overrides.ports ?? [],
-    networks: overrides.networks ?? [],
-    ip: overrides.ip ?? '',
-    mounts: overrides.mounts ?? [],
-    env: overrides.env ?? [],
-    restartPolicy: overrides.restartPolicy ?? 'no',
-    pids: overrides.pids ?? 0,
-    labels: overrides.labels ?? {},
-  };
+  return makeContainer({
+    id: Math.random().toString(36).slice(2),
+    name: 'svc',
+    image: 'alpine:latest',
+    uptime: '5m 0s',
+    pids: 0,
+    ...overrides,
+  });
 }
+
+/** Attached to these networks, by name. */
+const on = (...names: string[]) => names.map((n) => endpoint(n));
 
 describe('classifyContainer', () => {
   it('treats running/paused/restarting as running', () => {
@@ -58,8 +54,8 @@ describe('groupIntoStacks', () => {
 
   it('derives the stack from a _default network when no label is present (rule 2)', () => {
     const stacks = groupIntoStacks([
-      container({ name: 'cache', networks: ['ndsp_default'] }),
-      container({ name: 'queue', networks: ['ndsp_default'] }),
+      container({ name: 'cache', networks: on('ndsp_default') }),
+      container({ name: 'queue', networks: on('ndsp_default') }),
     ]);
     expect(stacks).toHaveLength(1);
     expect(stacks[0].id).toBe('ndsp');
@@ -70,7 +66,7 @@ describe('groupIntoStacks', () => {
     const stacks = groupIntoStacks([
       container({
         name: 'db',
-        networks: ['alphie_default'],
+        networks: on('alphie_default'),
         labels: { 'com.docker.compose.project': 'preferred' },
       }),
     ]);
@@ -79,7 +75,7 @@ describe('groupIntoStacks', () => {
   });
 
   it('falls back to (no stack) when neither rule matches', () => {
-    const stacks = groupIntoStacks([container({ name: 'standalone', networks: ['bridge'] })]);
+    const stacks = groupIntoStacks([container({ name: 'standalone', networks: on('bridge') })]);
     expect(stacks).toHaveLength(1);
     expect(stacks[0].id).toBe(NO_STACK);
     expect(stacks[0].isCompose).toBe(false);
@@ -114,7 +110,7 @@ describe('groupIntoStacks', () => {
         exitCode: 0,
         labels: { 'com.docker.compose.project': 'deadSmall' },
       }),
-      container({ name: 'h', status: 'exited', exitCode: 0, networks: ['bridge'] }),
+      container({ name: 'h', status: 'exited', exitCode: 0, networks: on('bridge') }),
     ]);
 
     expect(stacks.map((s) => s.id)).toEqual(['liveB', 'liveA', 'deadBig', 'deadSmall', NO_STACK]);
@@ -162,10 +158,38 @@ describe('groupIntoStacks', () => {
   it('marks a stack as compose if at least one member is labeled, even when others are only network-detected', () => {
     const stacks = groupIntoStacks([
       container({ name: 'a', labels: { 'com.docker.compose.project': 'mix' } }),
-      container({ name: 'b', networks: ['mix_default'] }),
+      container({ name: 'b', networks: on('mix_default') }),
     ]);
     expect(stacks).toHaveLength(1);
     expect(stacks[0].isCompose).toBe(true);
     expect(stacks[0].services.map((s) => s.name)).toEqual(['a', 'b']);
+  });
+});
+
+describe('stackCompose', () => {
+  const compose = (configFiles: string[], workingDir?: string) => ({
+    project: 'p',
+    service: 's',
+    configFiles,
+    ...(workingDir ? { workingDir } : {}),
+    dependsOn: [],
+    oneoff: false,
+  });
+
+  it("reads the compose files and working dir from its services' labels", () => {
+    const [stack] = groupIntoStacks([
+      container({ name: 'a', labels: { 'com.docker.compose.project': 'p' } }),
+      container({
+        name: 'b',
+        labels: { 'com.docker.compose.project': 'p' },
+        compose: compose(['/srv/p/compose.yaml'], '/srv/p'),
+      }),
+    ]);
+    expect(stackCompose(stack)).toEqual({ configFiles: ['/srv/p/compose.yaml'], workingDir: '/srv/p' });
+  });
+
+  it('is empty for a stack compose did not label', () => {
+    const [stack] = groupIntoStacks([container({ networks: on('legacy_default') })]);
+    expect(stackCompose(stack)).toEqual({ configFiles: [] });
   });
 });

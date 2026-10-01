@@ -63,6 +63,19 @@ describe('RefSection rendering', () => {
     expect(plain(section([bind, tmpfs]).render(COLS, true).lines[0])).not.toContain('↵');
   });
 
+  it("gives the footer its hints, ↵ named by the spec's verb only where a row leads somewhere", () => {
+    const verbs = (s: RefSection<MountInfo>) => s.footerHints().map((h) => `${h.key} ${h.verb}`);
+    expect(verbs(section([bind, volume]))).toEqual([
+      '↑↓ select',
+      '↵ open volume',
+      'y copy',
+      'Tab next',
+      'Esc close',
+      '[ ] back/fwd',
+    ]);
+    expect(verbs(section([bind]))).not.toContain('↵ open volume');
+  });
+
   it('styles a followable name as a link, and a bind source as plain text', () => {
     const [, vol, bnd] = section([volume, bind]).render(COLS, false).lines;
     expect(vol).toContain('{underline}');

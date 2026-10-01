@@ -3,6 +3,7 @@ import { C, t } from '@theme';
 import { type CharWidth, escapeTags, fitMiddle, fitWidth, oneLine, textWidth } from '@utils/format';
 import type { CopyOption } from '@ui/copy-menu';
 import type { PanelSection, SectionKeyResult, SectionRender } from '@ui/detail/panel-section';
+import { BACK, type Hint } from '@ui/footer';
 
 /** The row gutter: room for nothing but the selection bar's start. Matches ENV's ` ▸ `. */
 const GUTTER = 3;
@@ -136,6 +137,22 @@ export class RefSection<T> implements PanelSection {
     return row === null ? [] : this.spec.copy(row, this.rows);
   }
 
+  footerHints(): Hint[] {
+    return [
+      { key: '↑↓', verb: 'select' },
+      ...(this.follows() ? [{ key: '↵', verb: this.spec.follow }] : []),
+      { key: 'y', verb: 'copy' },
+      { key: 'Tab', verb: 'next' },
+      { key: 'Esc', verb: 'close' },
+      BACK,
+    ];
+  }
+
+  /** Some row leads somewhere: ↵ is worth a hint. */
+  private follows(): boolean {
+    return this.rows.some((r) => this.spec.ref(r) !== null);
+  }
+
   render(cols: number, focused: boolean): SectionRender {
     const lines = [this.header(focused)];
     if (this.rows.length === 0) return { lines, activeRange: null };
@@ -154,9 +171,8 @@ export class RefSection<T> implements PanelSection {
   private header(focused: boolean): string {
     const title = t.comment(`${this.spec.title} (${this.rows.length})`);
     if (this.rows.length === 0) return `${title}  ${t.faint(this.spec.empty)}`;
-    const follows = this.rows.some((r) => this.spec.ref(r) !== null);
     if (!focused) return `${title}  ${t.faint('Tab select')}`;
-    const hint = ['↑↓ select', ...(follows ? [`↵ ${this.spec.follow}`] : []), 'y copy', 'Tab next'];
+    const hint = ['↑↓ select', ...(this.follows() ? [`↵ ${this.spec.follow}`] : []), 'y copy', 'Tab next'];
     return `${title}  ${t.faint(hint.join(' · '))}`;
   }
 

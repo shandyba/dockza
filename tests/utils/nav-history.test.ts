@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { Location } from '@models/nav';
-import { NavHistory, describeRef, samePlace, viewForRef } from '@utils/nav-history';
+import {
+  NavHistory,
+  describeRef,
+  imageRef,
+  networkRef,
+  samePlace,
+  stackRef,
+  viewForRef,
+} from '@utils/nav-history';
 
 /** Entries are `place#state`: the same place may carry different state (a selected row, say). */
 const placeOf = (s: string): string => s.split('#')[0];
@@ -133,10 +141,29 @@ describe('viewForRef / describeRef', () => {
   it('maps each kind to the view that lists it', () => {
     expect(viewForRef({ kind: 'container', id: 'abc' })).toBe('containers');
     expect(viewForRef({ kind: 'volume', id: 'pgdata' })).toBe('volumes');
+    expect(viewForRef({ kind: 'image', id: 'sha256:abc' })).toBe('images');
+    expect(viewForRef({ kind: 'network', id: 'bridge' })).toBe('networks');
+    expect(viewForRef({ kind: 'stack', id: 'db-pr02' })).toBe('stacks');
   });
 
   it('describes a ref by its label, else its id', () => {
     expect(describeRef({ kind: 'container', id: 'abc', label: 'tk-t2-pg' })).toBe('container tk-t2-pg');
     expect(describeRef({ kind: 'volume', id: 'pgdata' })).toBe('volume pgdata');
+  });
+});
+
+describe('ref builders', () => {
+  it('points at an image by full ID, named by its first tag, else its short ID', () => {
+    expect(imageRef({ id: 'sha256:294b683cb7240000', tags: ['alpine:3', 'alpine:latest'] })).toEqual({
+      kind: 'image',
+      id: 'sha256:294b683cb7240000',
+      label: 'alpine:3',
+    });
+    expect(imageRef({ id: 'sha256:294b683cb7240000', tags: [] }).label).toBe('294b683cb724');
+  });
+
+  it('points at a network by name and a stack by project', () => {
+    expect(networkRef({ name: 'db-pr02_default' })).toEqual({ kind: 'network', id: 'db-pr02_default' });
+    expect(stackRef({ id: 'db-pr02' })).toEqual({ kind: 'stack', id: 'db-pr02' });
   });
 });

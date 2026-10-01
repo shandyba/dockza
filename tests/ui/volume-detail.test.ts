@@ -96,8 +96,10 @@ describe('Volumes: the detail panel over the list', () => {
   it('↵ on a USED BY row follows it once and does not re-open the panel', () => {
     press(screen, KEY.down);
     press(screen, KEY.enter);
+    press(screen, '\t'); // RELATED
     press(screen, '\t');
-    expect(tab.footerContext()).toBe('volume-detail-users');
+    // The section's own hints: what ↵ does there.
+    expect(tab.footerContext()).toContainEqual({ key: '↵', verb: 'open container' });
     press(screen, KEY.enter);
     expect(followed).toEqual([{ kind: 'container', id: 'c1', label: 'db-pr02' }]);
     expect(opened).toHaveLength(1);
@@ -119,9 +121,19 @@ describe('Volumes: the detail panel over the list', () => {
     expect(tab.isInert()).toBe(true); // the confirm dialog
   });
 
+  it('↵ on the RELATED stack row opens the stack', () => {
+    press(screen, KEY.down);
+    press(screen, KEY.enter);
+    press(screen, '\t');
+    expect(tab.footerContext()).toContainEqual({ key: '↵', verb: 'open' });
+    press(screen, KEY.enter);
+    expect(followed).toEqual([{ kind: 'stack', id: 'db-pr02' }]);
+  });
+
   it('describes where it is, and comes back there', () => {
     press(screen, KEY.down);
     press(screen, KEY.enter);
+    press(screen, '\t');
     press(screen, '\t');
     const here = tab.location();
     expect(here).toEqual({
@@ -169,15 +181,29 @@ describe('VolumeDetail content and copy', () => {
 
   it('shows where it came from and who uses it', () => {
     detail.show(pgdata);
-    expect(text()).toContain('Origin:      compose project db-pr02 · volume pgdata');
+    expect(text()).toMatch(/RELATED \(1\)\s+Tab select\n\s+stack\s+db-pr02\s+· volume pgdata/);
     expect(text()).toContain('● in use · 1 container');
     expect(text()).toContain('USED BY (1)');
     expect(text()).toMatch(/● db-pr02\s+exited\(0\)\s+→ \/var\/lib\/postgresql\s+rw/);
   });
 
+  it('a volume whose project has no containers left: orphaned, and no stack to open', () => {
+    detail.show(
+      volume('dzlink-gone_cache', { stack: 'dzlink-gone', composeVolume: 'cache', orphaned: true }),
+    );
+    expect(text()).toContain('○ orphaned');
+    expect(text()).toMatch(/project\s+dzlink-gone\s+has no containers/);
+    expect((detail.box as any).content).not.toContain('{underline}');
+  });
+
+  it('a volume with no compose or anonymous labels says so', () => {
+    detail.show(volume('plain'));
+    expect(text()).toContain('RELATED (0)  none — no compose or anonymous labels');
+  });
+
   it('is honest about an unused volume: no record of past users', () => {
     detail.show(orphan);
-    expect(text()).toContain('Origin:      anonymous');
+    expect(text()).toMatch(/RELATED \(1\)\s+Tab select\n\s+origin\s+anonymous/);
     expect(text()).toContain('USED BY (0)  none — Docker keeps no record of containers that used it before');
     expect(text()).toContain('○ unused');
   });
@@ -189,6 +215,9 @@ describe('VolumeDetail content and copy', () => {
       press(screen, key);
     }
     press(screen, '\t');
+    press(screen, 'y');
+    press(screen, 'n'); // RELATED: the project
+    press(screen, '\t');
     for (const key of ['n', 'i', 'd', 'y']) {
       press(screen, 'y');
       press(screen, key);
@@ -197,6 +226,7 @@ describe('VolumeDetail content and copy', () => {
     expect(copies).toEqual([
       'db-pr02_pgdata',
       '/var/lib/docker/volumes/db-pr02_pgdata/_data',
+      'db-pr02',
       'db-pr02',
       'db-pr02',
       'c1',

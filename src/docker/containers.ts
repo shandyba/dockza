@@ -1,7 +1,16 @@
 import type Dockerode from 'dockerode';
 import { dockerode } from '@docker/client';
-import type { ContainerInfo, ContainerStats, ContainerStatus, MountInfo, MountType } from '@models/docker';
-import { humanUptime, relativeTime } from '@utils/format';
+import type {
+  ContainerInfo,
+  ContainerStats,
+  ContainerStatus,
+  MountInfo,
+  MountType,
+  NetworkEndpoint,
+} from '@models/docker';
+import { composeInfo } from '@utils/compose';
+import { humanUptime, relativeTime, shortId } from '@utils/format';
+import { toPorts } from '@utils/ports';
 import { calcCPUPercent } from '@utils/stats';
 
 const VALID_STATUSES = new Set<ContainerStatus>([
@@ -37,6 +46,55 @@ export function toMountInfo(m: RawMount): MountInfo {
   };
 }
 
+/** A network endpoint from either payload. The list leaves `Aliases` / `DNSNames` null. */
+interface RawEndpoint {
+  IPAddress?: string;
+  Gateway?: string;
+  Aliases?: string[] | null;
+  DNSNames?: string[] | null;
+}
+
+/**
+ * The networks a container is attached to, keyed by name (see `withNetworkUsers`). Addresses come
+ * from the list payload; the names other containers resolve it by only from inspect, where
+ * `DNSNames` is its aliases plus its short ID — which says nothing, so it's left out.
+ */
+export function toNetworkEndpoints(
+  listed: Record<string, RawEndpoint> | null | undefined,
+  inspected: Record<string, RawEndpoint> | null | undefined,
+  containerId: string,
+): NetworkEndpoint[] {
+  const short = shortId(containerId);
+  const source = listed && Object.keys(listed).length > 0 ? listed : (inspected ?? {});
+  return Object.entries(source)
+    .map(([name, ep]) => {
+      const detail = inspected?.[name];
+      const names = detail?.DNSNames ?? detail?.Aliases ?? ep.DNSNames ?? ep.Aliases ?? [];
+      return {
+        name,
+        ip: ep.IPAddress || detail?.IPAddress || '',
+        gateway: ep.Gateway || detail?.Gateway || '',
+        aliases: [...new Set(names)].filter((a) => a !== short),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** `container:<id>` network mode: it runs in that container's network stack. */
+function sharedNetworkMode(mode: string | undefined): { container: string } | undefined {
+  const target = mode?.startsWith('container:') ? mode.slice('container:'.length) : '';
+  return target ? { container: target } : undefined;
+}
+
+/** `HostConfig.VolumesFrom` entries are `name[:ro|:rw]`; the container is all that's wanted. */
+function volumesFromTargets(entries: unknown): string[] {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((e): e is string => typeof e === 'string')
+    .map((e) => e.replace(/:(ro|rw)$/, ''))
+    .filter((e) => e !== '');
+}
+
 export function toContainerInfo(
   raw: Dockerode.ContainerInfo,
   inspected: Dockerode.ContainerInspectInfo | null,
@@ -60,15 +118,16 @@ export function toContainerInfo(
 
   // The daemon sends null (not []) for these when a container publishes no ports
   // or is attached to no networks, so every access here has to tolerate null.
-  const ports = (raw.Ports ?? []).map((p) =>
-    p.PublicPort
-      ? `${p.IP ? `${p.IP}:` : ''}${p.PublicPort}->${p.PrivatePort}/${p.Type}`
-      : `${p.PrivatePort}/${p.Type}`,
+  const ports = toPorts(raw.Ports);
+  const networks = toNetworkEndpoints(
+    raw.NetworkSettings?.Networks,
+    inspected?.NetworkSettings?.Networks,
+    raw.Id,
   );
-
-  const rawNetworks = raw.NetworkSettings?.Networks ?? {};
-  const networks = Object.keys(rawNetworks);
-  const ip = networks.length > 0 ? (rawNetworks[networks[0]]?.IPAddress ?? '') : '';
+  // Typed as always present, but the daemon sends null for a container without labels.
+  const labels = raw.Labels ?? {};
+  const compose = composeInfo(labels);
+  const networkMode = sharedNetworkMode(raw.HostConfig?.NetworkMode ?? inspected?.HostConfig?.NetworkMode);
 
   // Inspect's mounts first: the list payload leaves an anonymous volume's Source empty. Both come
   // from a Go map, so their order changes between calls — sort, or the rows reshuffle every poll.
@@ -80,17 +139,22 @@ export function toContainerInfo(
     id: raw.Id,
     name,
     image: raw.Image,
+    imageId: raw.ImageID ?? '',
+    // The list's `Image` turns into an ID once its name resolves to another image; inspect keeps it.
+    imageName: inspected?.Config?.Image || raw.Image,
     status,
     exitCode: inspected?.State?.ExitCode ?? 0,
     uptime,
     ports,
     networks,
-    ip,
     mounts,
     env: inspected?.Config?.Env ?? [],
     restartPolicy: inspected?.HostConfig?.RestartPolicy?.Name ?? 'no',
     pids: inspected?.State?.Pid ?? 0,
-    labels: raw.Labels ?? {},
+    labels,
+    ...(compose ? { compose } : {}),
+    ...(networkMode ? { networkMode } : {}),
+    volumesFrom: volumesFromTargets(inspected?.HostConfig?.VolumesFrom),
   };
 }
 

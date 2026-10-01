@@ -6,6 +6,7 @@ import { ContainersTab } from '@ui/containers/containers-tab';
 import { LogViewer } from '@ui/containers/log-viewer';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
 import type { TabNav } from '@ui/view-tab';
+import { makeContainer } from '../fixtures';
 import { KEY, makeScreen, press } from './headless';
 
 /**
@@ -16,23 +17,7 @@ import { KEY, makeScreen, press } from './headless';
 const DIMS = { top: 0, left: 0, width: '100%', height: '100%' };
 
 function container(id: string, extra: Partial<ContainerInfo> = {}): ContainerInfo {
-  return {
-    id,
-    name: `name-${id}`,
-    image: 'img',
-    status: 'running',
-    exitCode: 0,
-    uptime: '1m',
-    ports: [],
-    networks: [],
-    ip: '',
-    mounts: [],
-    env: [],
-    restartPolicy: 'no',
-    pids: 1,
-    labels: {},
-    ...extra,
-  };
+  return makeContainer({ id, name: `name-${id}`, ...extra });
 }
 
 describe('hide() is safe to call on a hidden widget', () => {

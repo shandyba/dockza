@@ -1,9 +1,12 @@
 export type ViewId = 'stacks' | 'containers' | 'images' | 'volumes' | 'networks';
 
-/** Kinds of object a reference can point at. Images and networks join when their views get details. */
-export type ResourceKind = 'container' | 'volume';
+/** Kinds of object a reference can point at: each one has a detail panel a link can open. */
+export type ResourceKind = 'container' | 'volume' | 'image' | 'network' | 'stack';
 
-/** A pointer to one docker object: a container by ID, a volume by name. */
+/**
+ * A pointer to one docker object: a container or an image by ID, a volume or a network by name,
+ * a stack by its project name.
+ */
 export interface ResourceRef {
   kind: ResourceKind;
   id: string;

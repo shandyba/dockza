@@ -2,6 +2,9 @@ import blessed from 'neo-blessed';
 import type { ContainerInfo } from '@models/docker';
 import { t } from '@theme';
 import { padEnd, truncate } from '@utils/format';
+import { formatFirst } from '@utils/list-cells';
+import { shownImage } from '@utils/outdated';
+import { formatPort } from '@utils/ports';
 import { colorByStatus, formatCpuCell, formatMemCell, statusDot, statusLabel } from '@utils/status';
 import {
   createCenteredMessage,
@@ -136,20 +139,23 @@ export class ContainerList {
     const nameRaw = truncate(c.name, Math.max(1, c1 - 2));
     const col1 = padEnd(`${statusDot(c)} ${nameRaw}`, c1);
 
-    const imageRaw = truncate(c.image, Math.max(1, c2 - 1));
-    const col2 = padEnd(t.comment(imageRaw), c2);
+    // An orange ↑: a newer image carries the tag it was created from (the detail says which).
+    const mark = c.outdated ? `${t.orange('↑')} ` : '';
+    const imageRaw = truncate(shownImage(c), Math.max(1, c2 - 1 - (mark ? 2 : 0)));
+    const col2 = padEnd(`${mark}${t.comment(imageRaw)}`, c2);
 
     const stateRaw = `${statusLabel(c)} · ${c.uptime}`;
     const col3 = padEnd(colorByStatus(c, truncate(stateRaw, c3 - 1)), c3);
 
-    const netRaw = c.networks.length > 0 ? truncate(c.networks[0], c4 - 1) : '—';
-    const col4 = padEnd(c.networks.length > 0 ? t.cyan(netRaw) : t.comment(netRaw), c4);
+    const networks = c.networks.map((n) => n.name);
+    const col4 = padEnd(formatFirst(networks, c4, t.cyan), c4);
 
     const col5 = padEnd(formatCpuCell(c, stats?.cpuPercent), c5);
     const col6 = padEnd(formatMemCell(c, stats?.memPercent), c6);
 
-    const rawPort = c.ports.length > 0 ? truncate(c.ports[0], c7 - 1) : '';
-    const col7 = rawPort ? t.pink(rawPort) : t.comment('—');
+    // One column short of the row's room: a row as wide as the item (the scrollbar takes a column)
+    // makes blessed wrap it at a space near its end, and `+N` vanishes onto a hidden second line.
+    const col7 = formatFirst(c.ports.map(formatPort), c7 - 1, t.pink);
 
     return `${col1}${col2}${col3}${col4}${col5}${col6}${col7}`;
   }

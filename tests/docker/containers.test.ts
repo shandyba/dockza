@@ -111,19 +111,19 @@ describe('toContainerInfo', () => {
     expect(info.uptime).toBe('Up');
   });
 
-  it('formats ports with IP, public, and private', () => {
+  it('maps a published port with its address and both sides', () => {
     const info = toContainerInfo(
       rawContainer({
         Ports: [{ IP: '0.0.0.0', PublicPort: 8080, PrivatePort: 80, Type: 'tcp' }],
       }),
       null,
     );
-    expect(info.ports).toEqual(['0.0.0.0:8080->80/tcp']);
+    expect(info.ports).toEqual([{ ip: '0.0.0.0', publicPort: 8080, privatePort: 80, type: 'tcp' }]);
   });
 
-  it('formats internal-only ports without ip/public', () => {
-    const info = toContainerInfo(rawContainer({ Ports: [{ PrivatePort: 3000, Type: 'tcp' }] }), null);
-    expect(info.ports).toEqual(['3000/tcp']);
+  it('maps an internal-only port without address or public side', () => {
+    const info = toContainerInfo(rawContainer({ Ports: [{ PrivatePort: 3000, Type: 'tcp' } as any] }), null);
+    expect(info.ports).toEqual([{ privatePort: 3000, type: 'tcp' }]);
   });
 
   it('treats a null Ports payload as no ports', () => {
@@ -132,31 +132,98 @@ describe('toContainerInfo', () => {
     expect(info.ports).toEqual([]);
   });
 
-  it('extracts networks and first IP', () => {
+  it('maps each network endpoint by name, with its address and gateway', () => {
     const info = toContainerInfo(
       rawContainer({
         NetworkSettings: {
           Networks: {
-            bridge: { IPAddress: '172.17.0.2' },
+            bridge: { IPAddress: '172.17.0.2', Gateway: '172.17.0.1' },
           } as any,
         },
       }),
       null,
     );
-    expect(info.networks).toEqual(['bridge']);
-    expect(info.ip).toBe('172.17.0.2');
+    expect(info.networks).toEqual([{ name: 'bridge', ip: '172.17.0.2', gateway: '172.17.0.1', aliases: [] }]);
   });
 
-  it('returns empty IP when no networks', () => {
-    const info = toContainerInfo(rawContainer({ NetworkSettings: { Networks: {} } }), null);
-    expect(info.networks).toEqual([]);
-    expect(info.ip).toBe('');
+  it("takes the DNS names from inspect, without the container's short ID", () => {
+    const listed = { 'db-pr02_default': { IPAddress: '', Gateway: '', Aliases: null, DNSNames: null } };
+    const fromInspect = {
+      'db-pr02_default': { Aliases: ['db-pr02', 'db'], DNSNames: ['db-pr02', 'db', 'b5322c040ce6'] },
+    };
+    const info = toContainerInfo(
+      rawContainer({ Id: 'b5322c040ce6aaaaaaaa', NetworkSettings: { Networks: listed } as any }),
+      { ...inspected({}), NetworkSettings: { Networks: fromInspect } } as any,
+    );
+    expect(info.networks[0].aliases).toEqual(['db-pr02', 'db']);
+    expect(info.networks[0].ip).toBe(''); // stopped
   });
 
-  it('tolerates a null Networks map', () => {
+  it('falls back to Aliases when the daemon has no DNSNames', () => {
+    const info = toContainerInfo(rawContainer({ NetworkSettings: { Networks: { n: {} } } as any }), {
+      ...inspected({}),
+      NetworkSettings: { Networks: { n: { Aliases: ['web'] } } },
+    } as any);
+    expect(info.networks[0].aliases).toEqual(['web']);
+  });
+
+  it('sorts networks by name', () => {
+    const info = toContainerInfo(
+      rawContainer({ NetworkSettings: { Networks: { zeta: {}, alpha: {} } } as any }),
+      null,
+    );
+    expect(info.networks.map((n) => n.name)).toEqual(['alpha', 'zeta']);
+  });
+
+  it('has no networks for an empty or null Networks map', () => {
+    expect(toContainerInfo(rawContainer({ NetworkSettings: { Networks: {} } }), null).networks).toEqual([]);
     const info = toContainerInfo(rawContainer({ NetworkSettings: { Networks: null } as any }), null);
     expect(info.networks).toEqual([]);
-    expect(info.ip).toBe('');
+  });
+
+  it('keeps the exact image ID, and the name it was created from from inspect', () => {
+    // The list replaces `Image` with an ID once the name resolves to another image.
+    const info = toContainerInfo(rawContainer({ Image: 'sha256:4ef4dbc939d6', ImageID: 'sha256:4ef4' }), {
+      ...inspected({}),
+      Config: { Env: [], Image: 'postgres:18' },
+    } as any);
+    expect(info.image).toBe('sha256:4ef4dbc939d6');
+    expect(info.imageId).toBe('sha256:4ef4');
+    expect(info.imageName).toBe('postgres:18');
+  });
+
+  it('names the image as listed when there is no inspect', () => {
+    expect(toContainerInfo(rawContainer({ Image: 'nginx:latest' }), null).imageName).toBe('nginx:latest');
+  });
+
+  it("reads compose's labels", () => {
+    const info = toContainerInfo(
+      rawContainer({
+        Labels: {
+          'com.docker.compose.project': 'db-pr02',
+          'com.docker.compose.service': 'api',
+          'com.docker.compose.depends_on': 'db:service_healthy:true',
+        },
+      }),
+      null,
+    );
+    expect(info.compose).toMatchObject({ project: 'db-pr02', service: 'api', dependsOn: ['db'] });
+    expect(toContainerInfo(rawContainer(), null).compose).toBeUndefined();
+  });
+
+  it('reads a shared network stack from the network mode', () => {
+    const shared = toContainerInfo(rawContainer({ HostConfig: { NetworkMode: 'container:abc123' } }), null);
+    expect(shared.networkMode).toEqual({ container: 'abc123' });
+    expect(toContainerInfo(rawContainer(), null).networkMode).toBeUndefined();
+  });
+
+  it('reads volumes-from targets from inspect, without their :ro / :rw', () => {
+    const info = toContainerInfo(rawContainer(), {
+      ...inspected({}),
+      HostConfig: { RestartPolicy: { Name: 'no' }, VolumesFrom: ['data', 'store:ro'] },
+    } as any);
+    expect(info.volumesFrom).toEqual(['data', 'store']);
+    expect(toContainerInfo(rawContainer(), inspected({})).volumesFrom).toEqual([]);
   });
 
   it('falls back to raw.Id when Names is null', () => {

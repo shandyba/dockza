@@ -3,6 +3,7 @@ import blessed from 'neo-blessed';
 import type { ContainerInfo } from '@models/docker';
 import { HelpOverlay } from '@ui/help-overlay';
 import { ContainerDetail } from '@ui/containers/container-detail';
+import { makeContainer } from '../fixtures';
 import { KEY, makeScreen, press } from './headless';
 
 /**
@@ -12,22 +13,15 @@ import { KEY, makeScreen, press } from './headless';
  * so the panel removing its own handler made the help's get skipped. Real keys, real screen.
  */
 
-const container: ContainerInfo = {
+const container: ContainerInfo = makeContainer({
   id: 'b5322c040ce6aaaaaaaa',
   name: 'db-pr02',
   image: 'postgres:18',
   status: 'exited',
-  exitCode: 0,
   uptime: 'a day ago',
-  ports: [],
-  networks: [],
-  ip: '',
-  mounts: [],
   env: ['A=1'],
-  restartPolicy: 'no',
   pids: 0,
-  labels: {},
-};
+});
 
 describe('HelpOverlay owns the keyboard while open', () => {
   let screen: blessed.Widgets.Screen;

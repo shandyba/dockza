@@ -16,7 +16,7 @@ import type { RowStats } from '@ui/containers/container-list';
 import { ContainerDetail } from '@ui/containers/container-detail';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
 import { LogViewer } from '@ui/containers/log-viewer';
-import { containerDetailContext, type FooterContext } from '@ui/footer';
+import type { FooterHints } from '@ui/footer';
 import type { TabNav, ViewTab } from '@ui/view-tab';
 import type { Dims, RunMutation } from '@ui/widgets';
 
@@ -174,6 +174,10 @@ export class ContainersTab implements ViewTab {
     this.containerDetail.on('error', (msg) => this.emitError(msg));
 
     this.logViewer.on('close-request', () => this.nav.open(null));
+    this.logViewer.on('detail-request', () => {
+      const ref = this.openPanel()?.ref;
+      if (ref) this.nav.open({ kind: 'detail', ref });
+    });
     this.logViewer.on('follow-change', () => this.emitContext());
 
     this.containerList.hide();
@@ -276,10 +280,9 @@ export class ContainersTab implements ViewTab {
     return ref.kind === 'container' && this.containers.some((c) => c.id === ref.id);
   }
 
-  footerContext(): FooterContext {
+  footerContext(): FooterHints {
     if (this.logViewer.isVisible()) return 'log';
-    if (this.containerDetail.isVisible())
-      return containerDetailContext(this.containerDetail.focusedSection());
+    if (this.containerDetail.isVisible()) return this.containerDetail.focusedHints() ?? 'detail';
     const c = this.containerList.getSelected();
     if (!c) return 'containers-empty';
     return isActive(c.status) ? 'containers-running' : 'containers-stopped';

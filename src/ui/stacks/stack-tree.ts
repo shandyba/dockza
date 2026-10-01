@@ -2,6 +2,9 @@ import blessed from 'neo-blessed';
 import type { ContainerInfo, ContainerStats } from '@models/docker';
 import { t } from '@theme';
 import { padEnd, truncate } from '@utils/format';
+import { formatFirst } from '@utils/list-cells';
+import { shownImage } from '@utils/outdated';
+import { formatPort } from '@utils/ports';
 import { formatCpuCell, formatMemCell, isActive, statusDot } from '@utils/status';
 import type { Stack } from '@utils/stacks';
 import {
@@ -173,15 +176,6 @@ export class StackTree {
 
   getFilter(): string {
     return this.filter;
-  }
-
-  toggleExpansion(): boolean {
-    const sel = this.rows[listSelected(this.list)];
-    if (!sel || sel.kind !== 'stack-header') return false;
-    if (this.expanded.has(sel.stackId)) this.expanded.delete(sel.stackId);
-    else this.expanded.add(sel.stackId);
-    this.rebuild({ preserveSelection: true });
-    return true;
   }
 
   expandSelected(): void {
@@ -385,9 +379,11 @@ export class StackTree {
     // The deeper gutter is paid for out of the image column, not the name: service names are
     // what the eye scans, and image tags are the column that tolerates a tighter fit.
     const imageW = cols.imageW + 1 - NEST_STEP;
-    const imageMax = Math.max(4, imageW - 2);
-    const image = truncate(c.image, imageMax);
-    const imageCol = padEnd(t.dim(image), imageW);
+    // An orange ↑: a newer image carries the tag it was created from (the detail says which).
+    const mark = c.outdated ? `${t.orange('↑')} ` : '';
+    const imageMax = Math.max(4, imageW - 2 - (mark ? 2 : 0));
+    const image = truncate(shownImage(c), imageMax);
+    const imageCol = padEnd(`${mark}${t.dim(image)}`, imageW);
 
     const status = padEnd(this.colorStatus(c, shortStatus(c)), cols.statusW);
 
@@ -397,11 +393,10 @@ export class StackTree {
     const cpuCol = cols.showCpu ? padEnd(formatCpuCell(c, cpuVal), cols.cpuW) : '';
     const memCol = cols.showMem ? padEnd(formatMemCell(c, memVal), cols.memW) : '';
 
-    let portsCol = '';
-    if (cols.showPorts) {
-      const portStr = c.ports[0] ? truncate(c.ports[0], cols.portsW - 1) : '';
-      portsCol = portStr ? t.pink(portStr) : t.faint('—');
-    }
+    // The cells before it take one column more than `computeColumns` counts (the name cell's `+ 1`),
+    // and a row as wide as the item (the scrollbar takes a column) makes blessed wrap it at a space
+    // near its end: `+N` would vanish onto a hidden second line. So the cell stops two columns short.
+    const portsCol = cols.showPorts ? formatFirst(c.ports.map(formatPort), cols.portsW - 2, t.pink) : '';
 
     return `${indent}${nameCol}${imageCol}${status}${cpuCol}${memCol}${portsCol}`;
   }

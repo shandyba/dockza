@@ -6,17 +6,18 @@ import {
   startContainer,
   stopContainer,
 } from '@docker/containers';
-import type { ContainerInfo, ContainerStats } from '@models/docker';
+import type { ContainerInfo, ContainerStats, NetworkInfo, VolumeInfo } from '@models/docker';
 import type { Location, PanelLoc, ResourceRef } from '@models/nav';
 import { C } from '@theme';
-import { containerRef } from '@utils/nav-history';
+import { containerRef, stackRef } from '@utils/nav-history';
 import type { Stack } from '@utils/stacks';
 import { isActive } from '@utils/status';
 import { openExternalShell } from '@utils/external-terminal';
 import { ContainerDetail } from '@ui/containers/container-detail';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
 import { LogViewer } from '@ui/containers/log-viewer';
-import { containerDetailContext, type FooterContext } from '@ui/footer';
+import type { FooterHints } from '@ui/footer';
+import { StackDetail, type StackResources } from '@ui/stacks/stack-detail';
 import { StackTree } from '@ui/stacks/stack-tree';
 import type { TabNav, ViewTab } from '@ui/view-tab';
 import type { Dims, RunMutation } from '@ui/widgets';
@@ -32,11 +33,14 @@ export class StacksTab implements ViewTab {
 
   private tree: StackTree;
   private containerDetail: ContainerDetail;
+  private stackDetail: StackDetail;
   private confirmDialog: ConfirmDialog;
   private logViewer: LogViewer;
 
   private containers: ContainerInfo[] = [];
   private stacks: Stack[] = [];
+  /** App's volumes and networks, for a stack detail to pick its own from. */
+  private resources: StackResources = { volumes: [], networks: [] };
   private statsCache = new Map<string, ContainerStats>();
   private active = false;
   private filterOpen = false;
@@ -83,6 +87,7 @@ export class StacksTab implements ViewTab {
     });
 
     this.containerDetail = new ContainerDetail(screen, dims);
+    this.stackDetail = new StackDetail(screen, dims);
     this.confirmDialog = new ConfirmDialog(screen);
     this.logViewer = new LogViewer(screen, dims);
 
@@ -94,9 +99,19 @@ export class StacksTab implements ViewTab {
     this.containerDetail.on('info', (msg) => this.infoHandlers.forEach((h) => h(msg)));
 
     this.logViewer.on('close-request', () => this.nav.open(null));
+    this.logViewer.on('detail-request', () => {
+      const ref = this.openPanel()?.ref;
+      if (ref) this.nav.open({ kind: 'detail', ref });
+    });
     this.logViewer.on('follow-change', () => this.emitContext());
 
     this.containerDetail.on('error', (msg) => this.emitError(msg));
+
+    this.stackDetail.on('close-request', () => this.nav.open(null));
+    this.stackDetail.on('goto', (ref) => this.nav.follow(ref));
+    this.stackDetail.on('section', () => this.emitContext());
+    this.stackDetail.on('info', (msg) => this.infoHandlers.forEach((h) => h(msg)));
+    this.stackDetail.on('error', (msg) => this.emitError(msg));
 
     this.filterBox.on('submit', (value: string) => {
       this.applyFilter(value ?? '');
@@ -142,6 +157,7 @@ export class StacksTab implements ViewTab {
     if (!this.active) return;
     this.active = false;
     this.containerDetail.hide();
+    this.stackDetail.hide();
     this.logViewer.hide();
     this.confirmDialog.hide();
     if (this.filterOpen) this.exitFilter();
@@ -165,7 +181,7 @@ export class StacksTab implements ViewTab {
   }
 
   isOverlayOpen(): boolean {
-    return this.isModalOpen() || this.containerDetail.isVisible();
+    return this.isModalOpen() || this.containerDetail.isVisible() || this.stackDetail.isVisible();
   }
 
   isInert(): boolean {
@@ -181,6 +197,7 @@ export class StacksTab implements ViewTab {
 
   restore(loc: Location): boolean {
     const panel = loc.panel;
+    if (panel?.ref.kind === 'stack') return this.restoreStack(panel);
     const rowKey = panel ? `c:${panel.ref.id}` : loc.selection;
     if (rowKey !== undefined) this.tree.selectKey(rowKey);
 
@@ -190,6 +207,7 @@ export class StacksTab implements ViewTab {
       return !panel;
     }
 
+    this.stackDetail.hide();
     if (panel.kind === 'detail') {
       this.logViewer.hide();
       if (this.containerDetail.getContainerId() !== target.id || !this.containerDetail.isVisible()) {
@@ -205,15 +223,15 @@ export class StacksTab implements ViewTab {
     return true;
   }
 
-  /** Never a link's landing place: containers open in the Containers view. */
+  /** A stack's detail opens over its header; containers open in the Containers view. */
   has(ref: ResourceRef): boolean {
-    return ref.kind === 'container' && this.containers.some((c) => c.id === ref.id);
+    return ref.kind === 'stack' && this.stacks.some((s) => s.id === ref.id);
   }
 
-  footerContext(): FooterContext {
+  footerContext(): FooterHints {
     if (this.logViewer.isVisible()) return 'log';
-    if (this.containerDetail.isVisible())
-      return containerDetailContext(this.containerDetail.focusedSection());
+    if (this.containerDetail.isVisible()) return this.containerDetail.focusedHints() ?? 'detail';
+    if (this.stackDetail.isVisible()) return this.stackDetail.focusedHints() ?? 'stack-detail';
     const sel = this.tree.getSelected();
     if (!sel) return 'global';
     if (sel.kind === 'stack') return 'stacks-tree-stack';
@@ -240,6 +258,7 @@ export class StacksTab implements ViewTab {
 
   cleanup(): void {
     this.containerDetail.hide();
+    this.stackDetail.hide();
     this.logViewer.hide();
     this.confirmDialog.hide();
   }
@@ -261,8 +280,15 @@ export class StacksTab implements ViewTab {
         }
       }
     }
+    this.refreshStackDetail();
 
     this.emitContext();
+  }
+
+  /** App's volumes and networks, whenever either listing or the containers change. */
+  setResources(volumes: VolumeInfo[], networks: NetworkInfo[]): void {
+    this.resources = { volumes, networks };
+    this.refreshStackDetail();
   }
 
   updateStats(id: string, stats: ContainerStats): void {
@@ -285,6 +311,35 @@ export class StacksTab implements ViewTab {
     this.contextHandlers.forEach((h) => h());
   }
 
+  /** The open stack detail on fresh data; gone under it, it closes (not a step the user took). */
+  private refreshStackDetail(): void {
+    if (!this.stackDetail.isVisible()) return;
+    const stack = this.stacks.find((s) => s.id === this.stackDetail.getStackId());
+    if (stack) this.stackDetail.update(stack, this.resources);
+    else {
+      this.stackDetail.hide();
+      this.tree.focus();
+    }
+  }
+
+  private restoreStack(panel: PanelLoc): boolean {
+    this.tree.selectKey(`s:${panel.ref.id}`);
+    const stack = this.stacks.find((s) => s.id === panel.ref.id);
+    if (!stack) {
+      this.closePanels();
+      return false;
+    }
+    this.containerDetail.hide();
+    this.logViewer.hide();
+    if (this.stackDetail.getStackId() !== stack.id || !this.stackDetail.isVisible()) {
+      this.stackDetail.show(stack, this.resources);
+    }
+    this.stackDetail.setFocus(panel.focus);
+    this.emitContext();
+    this.screen.render();
+    return true;
+  }
+
   private openPanel(): PanelLoc | undefined {
     const byId = (id: string | null): ResourceRef | null => {
       const c = this.containers.find((x) => x.id === id);
@@ -299,11 +354,18 @@ export class StacksTab implements ViewTab {
       const ref = byId(this.logViewer.getContainerId());
       if (ref) return { kind: 'logs', ref };
     }
+    const stackId = this.stackDetail.isVisible() ? this.stackDetail.getStackId() : null;
+    if (stackId !== null) {
+      const focus = this.stackDetail.getFocus();
+      const ref = stackRef({ id: stackId });
+      return focus ? { kind: 'detail', ref, focus } : { kind: 'detail', ref };
+    }
     return undefined;
   }
 
   private closePanels(): void {
     this.containerDetail.hide();
+    this.stackDetail.hide();
     this.logViewer.hide();
     this.tree.focus();
     this.emitContext();
@@ -347,11 +409,9 @@ export class StacksTab implements ViewTab {
     if (!this.active || this.isOverlayOpen()) return;
     const sel = this.tree.getSelected();
     if (!sel) return;
-    if (sel.kind === 'stack') {
-      this.tree.toggleExpansion();
-      return;
-    }
-    this.nav.open({ kind: 'detail', ref: containerRef(sel.container) });
+    // ↵ is detail everywhere; → / ← expand and collapse a stack.
+    const ref = sel.kind === 'stack' ? stackRef(sel.stack) : containerRef(sel.container);
+    this.nav.open({ kind: 'detail', ref });
   };
 
   private readonly handleLeft = () => {
@@ -444,6 +504,8 @@ export class StacksTab implements ViewTab {
 
   /** Container targeted by tree/detail actions (detail takes precedence when open). */
   private getActionTarget(): ContainerInfo | null {
+    // A stack's detail has no container to act on.
+    if (this.stackDetail.isVisible()) return null;
     if (this.containerDetail.isVisible()) {
       const id = this.containerDetail.getContainerId();
       if (id) return this.containers.find((c) => c.id === id) ?? null;

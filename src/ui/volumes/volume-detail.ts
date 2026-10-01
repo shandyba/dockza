@@ -4,11 +4,15 @@ import type { PanelFocus, ResourceRef } from '@models/nav';
 import { t } from '@theme';
 import { dateTime, escapeTags, humanSizeMB, oneLine, relativeTime } from '@utils/format';
 import { textOption, type CopyOption } from '@ui/copy-menu';
+import { allNames } from '@ui/detail/copy-all';
 import { DetailPanel, type CopyFn } from '@ui/detail/detail-panel';
 import type { PanelSection } from '@ui/detail/panel-section';
 import { RefSection } from '@ui/detail/ref-section';
+import { relatedRows, type RelatedRow } from '@ui/detail/related-rows';
+import type { Hint } from '@ui/footer';
 import type { ResourceDetail } from '@ui/resource-list-tab';
 import { usedByRows } from '@ui/volumes/used-by-rows';
+import { volumeRelated } from '@ui/volumes/volume-related';
 import { charWidth, type Dims } from '@ui/widgets';
 
 type Handler = () => void;
@@ -20,11 +24,15 @@ type MessageHandler = (message: string) => void;
 const safe = (s: string): string => escapeTags(oneLine(s));
 
 /**
- * A volume's detail: what it is, where its data lives, where it came from, and which containers
- * mount it. Tab puts the cursor on USED BY; ↵ there opens that container's detail.
+ * A volume's detail: what it is, where its data lives, where it came from (RELATED), and which
+ * containers mount it. Tab walks RELATED → USED BY; ↵ opens the stack or container a row names.
  */
 export class VolumeDetail implements ResourceDetail<VolumeInfo> {
   private readonly panel: DetailPanel;
+  private readonly related = new RefSection<RelatedRow>(
+    relatedRows('none — no compose or anonymous labels'),
+    charWidth,
+  );
   private readonly users: RefSection<VolumeUser>;
   private volume: VolumeInfo | null = null;
 
@@ -40,7 +48,7 @@ export class VolumeDetail implements ResourceDetail<VolumeInfo> {
         header: () =>
           ` ${t.purple('DETAIL')} — ${t.fg(safe(this.volume?.name ?? ''))}  ${t.comment('volume')}`,
         blocks: () => this.blocks(),
-        sections: () => [this.users],
+        sections: () => [this.related, this.users],
         subjectCopy: () => this.subjectCopy(),
       },
       copy,
@@ -65,12 +73,14 @@ export class VolumeDetail implements ResourceDetail<VolumeInfo> {
 
   show(volume: VolumeInfo): void {
     this.volume = volume;
+    this.related.reset(volumeRelated(volume));
     this.users.reset(volume.users);
     this.panel.show();
   }
 
   update(volume: VolumeInfo): void {
     this.volume = volume;
+    this.related.setRows(volumeRelated(volume));
     this.users.setRows(volume.users);
     this.panel.refresh();
   }
@@ -88,6 +98,10 @@ export class VolumeDetail implements ResourceDetail<VolumeInfo> {
     return this.panel.focusedSection();
   }
 
+  focusedHints(): Hint[] | null {
+    return this.panel.focusedHints();
+  }
+
   getFocus(): PanelFocus | undefined {
     return this.panel.getFocus();
   }
@@ -99,29 +113,16 @@ export class VolumeDetail implements ResourceDetail<VolumeInfo> {
   private subjectCopy(): CopyOption[] {
     const v = this.volume;
     if (!v) return [];
-    const names = [...new Set(v.users.map((u) => u.name))];
     return [
       textOption('n', 'name', v.name, 'volume name'),
       textOption('p', 'mountpoint', v.mountpoint, 'mountpoint'),
-      {
-        key: 'a',
-        label: `all users (${names.length})`,
-        preview: 'container names, one per line',
-        text: names.length > 0 ? names.join('\n') : null,
-        reason: 'no container uses it',
-        subject: `${names.length} container name${names.length === 1 ? '' : 's'}`,
-      },
+      allNames(
+        v.users.map((u) => u.name),
+        'container name',
+        'no container uses it',
+        'all users',
+      ),
     ];
-  }
-
-  /** Where it came from, as far as its labels say. Docker records nothing else. */
-  private origin(v: VolumeInfo): string {
-    const parts: string[] = [];
-    if (v.stack) parts.push(`compose project ${t.cyan(safe(v.stack))}`);
-    if (v.composeVolume) parts.push(`volume ${t.fg(safe(v.composeVolume))}`);
-    if (v.anonymous) parts.push('anonymous');
-    if (parts.length === 0) return t.comment('— (no compose or anonymous labels)');
-    return parts.join(t.comment(' · '));
   }
 
   private blocks(): Array<string | PanelSection> {
@@ -133,11 +134,14 @@ export class VolumeDetail implements ResourceDetail<VolumeInfo> {
 
     return [
       `{bold}${t.purple(safe(v.name))}{/bold}  ${t.comment(`${safe(v.driver)} · ${size}`)}`,
-      v.inUse ? t.green(`● in use · ${n} container${n === 1 ? '' : 's'}`) : t.red('○ unused'),
+      v.inUse
+        ? t.green(`● in use · ${n} container${n === 1 ? '' : 's'}`)
+        : t.red(v.orphaned ? '○ orphaned' : '○ unused'),
       '',
       `${t.comment('Created:')}     ${created}`,
       `${t.comment('Mountpoint:')}  ${safe(v.mountpoint)}`,
-      `${t.comment('Origin:')}      ${this.origin(v)}`,
+      '',
+      this.related,
       '',
       this.users,
       '',

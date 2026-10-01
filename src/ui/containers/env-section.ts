@@ -11,6 +11,7 @@ import {
 } from '@utils/format';
 import { shortSubject as short, type CopyOption } from '@ui/copy-menu';
 import type { PanelSection, SectionKeyResult, SectionRender } from '@ui/detail/panel-section';
+import type { Hint } from '@ui/footer';
 
 /** ` ▸ ` in front of every row: space, caret, space. */
 const GUTTER = 3;
@@ -196,6 +197,18 @@ export class EnvSection implements PanelSection {
       if (active) activeRange = [i === 0 ? 0 : start, lines.length - 1];
     });
     return { lines, activeRange };
+  }
+
+  footerHints(): Hint[] {
+    return [
+      { key: '↑↓', verb: 'select' },
+      { key: '↵', verb: 'value' },
+      { key: 'E', verb: 'all' },
+      { key: 'y', verb: 'copy' },
+      { key: 'Tab', verb: 'next' },
+      { key: 'e', verb: 'hide' },
+      { key: 'Esc', verb: 'close' },
+    ];
   }
 
   /** The copy menu's options, captured now so a poll landing while it is open can't change them. */

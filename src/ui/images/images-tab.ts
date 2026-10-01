@@ -2,7 +2,10 @@ import type blessed from 'neo-blessed';
 import { removeImage } from '@docker/images';
 import type { ImageInfo } from '@models/docker';
 import { t } from '@theme';
-import { humanSizeMB, relativeTime, truncate } from '@utils/format';
+import { humanSizeMB, relativeTime, shortId, truncate } from '@utils/format';
+import { formatFirst, formatUsedBy } from '@utils/list-cells';
+import { imageLabel } from '@utils/nav-history';
+import { ImageDetail } from '@ui/images/image-detail';
 import { ResourceListTab } from '@ui/resource-list-tab';
 import type { TabNav } from '@ui/view-tab';
 import type { Dims, RunMutation } from '@ui/widgets';
@@ -19,18 +22,30 @@ export class ImagesTab extends ResourceListTab<ImageInfo> {
         getKey: (img) => img.id,
         emptyMessage: 'No images',
         confirmTitle: 'Remove image?',
-        confirmLabel: (img) => `${img.repository}:${img.tag}`,
+        confirmLabel: imageLabel,
         guards: [(img) => (img.inUse ? 'Image in use — cannot delete' : null)],
+        detail: {
+          kind: 'image',
+          label: imageLabel,
+          create: (s, d) => new ImageDetail(s, d),
+          footer: 'image-detail',
+        },
         columns: [
           { header: 'REPOSITORY', weight: 0.25, render: (img, w) => truncate(img.repository, w - 1) },
-          { header: 'TAG', weight: 0.12, render: (img, w) => t.cyan(truncate(img.tag, w - 1)) },
           {
-            header: 'ID',
-            weight: 0.1,
-            render: (img) => t.comment(img.id.replace('sha256:', '').slice(0, 12)),
+            header: 'TAG',
+            weight: 0.14,
+            // The first tag's own half, then how many other tags (any repository) it carries.
+            render: (img, w) => formatFirst([img.tag, ...img.tags.slice(1)], w, t.cyan),
           },
-          { header: 'CREATED', weight: 0.15, render: (img) => t.comment(relativeTime(img.created)) },
-          { header: 'SIZE', weight: 0.1, render: (img) => humanSizeMB(img.sizeMB) },
+          { header: 'ID', weight: 0.11, render: (img, w) => t.comment(truncate(shortId(img.id), w - 1)) },
+          {
+            header: 'CREATED',
+            weight: 0.13,
+            render: (img, w) => t.comment(truncate(relativeTime(img.created), w - 1)),
+          },
+          { header: 'SIZE', weight: 0.09, render: (img) => humanSizeMB(img.sizeMB) },
+          { header: 'USED BY', weight: 0.17, render: (img, w) => formatUsedBy(img.users, w) },
           {
             header: 'STATUS',
             weight: 0,

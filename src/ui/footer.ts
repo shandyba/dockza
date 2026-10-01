@@ -14,10 +14,10 @@ export type FooterContext =
   | 'volumes'
   | 'networks'
   | 'detail'
-  | 'detail-env'
-  | 'detail-mounts'
   | 'volume-detail'
-  | 'volume-detail-users'
+  | 'image-detail'
+  | 'network-detail'
+  | 'stack-detail'
   | 'log';
 
 export interface FooterMessage {
@@ -25,12 +25,23 @@ export interface FooterMessage {
   color: 'red' | 'green' | 'normal';
 }
 
-interface Hint {
+/** One key and what it does, as the footer shows it. */
+export interface Hint {
   key: string;
   verb: string;
 }
 
-const BACK: Hint = { key: '[ ]', verb: 'back/fwd' };
+export const BACK: Hint = { key: '[ ]', verb: 'back/fwd' };
+
+/** Over a detail panel with no section selected. */
+const RESOURCE_DETAIL: Hint[] = [
+  { key: 'Tab', verb: 'section' },
+  { key: 'y', verb: 'copy' },
+  { key: 'd', verb: 'delete' },
+  { key: '↑↓', verb: 'scroll' },
+  { key: 'Esc', verb: 'close' },
+  BACK,
+];
 
 const HINTS: Record<FooterContext, Hint[]> = {
   global: [
@@ -43,8 +54,8 @@ const HINTS: Record<FooterContext, Hint[]> = {
   ],
   'stacks-tree-stack': [
     { key: '↑↓', verb: 'nav' },
+    { key: '↵', verb: 'detail' },
     { key: '→←', verb: 'expand' },
-    { key: '↵', verb: 'toggle' },
     { key: '/', verb: 'filter' },
     BACK,
     { key: 'h', verb: 'help' },
@@ -101,6 +112,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
   ],
   images: [
     { key: '↑↓', verb: 'nav' },
+    { key: '↵', verb: 'detail' },
     { key: 'd', verb: 'delete' },
     BACK,
     { key: 'h', verb: 'help' },
@@ -116,6 +128,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
   ],
   networks: [
     { key: '↑↓', verb: 'nav' },
+    { key: '↵', verb: 'detail' },
     { key: 'd', verb: 'delete' },
     BACK,
     { key: 'h', verb: 'help' },
@@ -131,40 +144,18 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 'Esc', verb: 'close' },
     BACK,
   ],
-  'detail-env': [
-    { key: '↑↓', verb: 'select' },
-    { key: '↵', verb: 'value' },
-    { key: 'E', verb: 'all' },
-    { key: 'y', verb: 'copy' },
-    { key: 'Tab', verb: 'next' },
-    { key: 'e', verb: 'hide' },
-    { key: 'Esc', verb: 'close' },
-  ],
-  'detail-mounts': [
-    { key: '↑↓', verb: 'select' },
-    { key: '↵', verb: 'open volume' },
-    { key: 'y', verb: 'copy' },
-    { key: 'Tab', verb: 'next' },
-    { key: 'Esc', verb: 'close' },
-    BACK,
-  ],
-  'volume-detail': [
+  'volume-detail': RESOURCE_DETAIL,
+  'image-detail': RESOURCE_DETAIL,
+  'network-detail': RESOURCE_DETAIL,
+  'stack-detail': [
     { key: 'Tab', verb: 'section' },
     { key: 'y', verb: 'copy' },
-    { key: 'd', verb: 'delete' },
     { key: '↑↓', verb: 'scroll' },
     { key: 'Esc', verb: 'close' },
     BACK,
   ],
-  'volume-detail-users': [
-    { key: '↑↓', verb: 'select' },
-    { key: '↵', verb: 'open container' },
-    { key: 'y', verb: 'copy' },
-    { key: 'Tab', verb: 'next' },
-    { key: 'Esc', verb: 'close' },
-    BACK,
-  ],
   log: [
+    { key: '↵', verb: 'detail' },
     { key: 'f', verb: 'follow' },
     { key: 'g', verb: 'top' },
     { key: 'G', verb: 'bottom' },
@@ -174,17 +165,16 @@ const HINTS: Record<FooterContext, Hint[]> = {
   ],
 };
 
-/** A container detail panel's hints, by the section holding the cursor. */
-export function containerDetailContext(section: string | null): FooterContext {
-  if (section === 'env') return 'detail-env';
-  if (section === 'mounts') return 'detail-mounts';
-  return 'detail';
-}
+/**
+ * What the footer shows: a named context, or — while a panel section has the cursor — that
+ * section's own hints (`PanelSection.footerHints`), which differ only in what ↵ does.
+ */
+export type FooterHints = FooterContext | Hint[];
 
 export class Footer {
   readonly box: blessed.Widgets.BoxElement;
 
-  private context: FooterContext = 'global';
+  private hints: Hint[] = HINTS.global;
   private message: FooterMessage | null = null;
   private lastRefreshAt: number | null = null;
   private tickerHandle: NodeJS.Timeout | null = null;
@@ -201,8 +191,8 @@ export class Footer {
     });
   }
 
-  setContext(c: FooterContext): void {
-    this.context = c;
+  setContext(c: FooterHints): void {
+    this.hints = typeof c === 'string' ? HINTS[c] : c;
     this.render();
   }
 
@@ -249,7 +239,7 @@ export class Footer {
   }
 
   private buildHints(budget: number): string {
-    const hints = HINTS[this.context];
+    const hints = this.hints;
     const parts: string[] = [' '];
     let visible = 1;
     for (const h of hints) {

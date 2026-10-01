@@ -42,9 +42,10 @@ dockza
 
 - **Compose-aware Stacks view** — containers grouped by project with running / errored / stopped counts, collapsible per stack.
 - **Containers / Images / Volumes** — live CPU and memory stats, start / stop / restart / kill / remove with confirm dialogs.
-- **Networks** — list Docker networks with driver, scope, attached-container count, creation time, and in-use status; remove unused networks (built-in networks and any with attached containers are protected).
-- **Detail panel** — full metadata, live CPU/MEM bars, mounts with the volume each one comes from, and environment variables you can browse, expand to their full value, and copy to the clipboard.
-- **Volumes ↔ containers** — the Volumes list shows which containers use each volume; a volume's detail lists them and says where the volume came from. `Enter` on a mount opens its volume, and `Enter` on a user opens that container.
+- **Networks** — list Docker networks with driver, scope, the containers attached, creation time, and in-use status; remove unused networks (built-in networks and any with attached containers are protected).
+- **Detail panel** — full metadata, live CPU/MEM bars, the image and compose stack a container belongs to, its published ports, the networks it is on with its address and DNS names, mounts with the volume each one comes from, the containers it depends on, and environment variables you can browse, expand to their full value, and copy to the clipboard.
+- **Everything links** — containers, images, volumes, networks and compose stacks each have a detail, and each names the others it relates to: a container's image and stack, an image's or a network's containers, a stack's services, volumes and networks, a container's `depends_on`. `Enter` on any of them opens it; `[` comes back.
+- **Outdated and orphaned** — an orange `↑` marks a container whose image tag now points at a newer image, and `○ orphaned` a volume or network left behind by a compose project that has no containers any more.
 - **Back / forward** — `[` and `]` walk through the screens you visited, links followed included.
 - **Streaming log viewer** with follow mode, scrollback cap, and color-coded stdout/stderr.
 - **Filter** — press `/` from Stacks to filter by stack, service, or image name.
@@ -100,7 +101,7 @@ Over SSH, or when none of those tools works, dockza falls back to an OSC 52 esca
 |-----|--------|
 | `↑ ↓` / `j k` | Navigate tree |
 | `→` / `←` | Expand / collapse stack |
-| `Enter` | On a stack: toggle expand. On a service: open detail panel |
+| `Enter` | On a stack: open the stack's detail. On a service: open the container's detail |
 | `/` | Open filter (`Esc` to clear) |
 | `l` | Open log viewer |
 | `x` | Shell into selected running container |
@@ -118,13 +119,23 @@ Same container actions as the list/tree (`l`, `s`, `r`, `k`, `S`, `d`, `x`) plus
 
 | Key | Action |
 |-----|--------|
-| `Tab` / `Shift+Tab` | Put the cursor on the next / previous section: MOUNTS, then ENV, then none |
+| `Tab` / `Shift+Tab` | Put the cursor on the next / previous section, in the order shown, then none |
+| `Enter` | On a link: open the image, stack, network, volume or container it names |
 | `e` | Show / hide environment variables |
 | `y` | Copy menu (below) |
 | `↑ ↓` / `PgUp PgDn` / `Home End` | Scroll |
 | `Esc` | Close |
 
-MOUNTS lists each mount as its type, where it comes from (a volume's name, or a bind's host path), and where it's mounted. With the cursor on it, `↑ ↓` select a mount and `Enter` on a volume opens that volume's detail in the Volumes view. ENV stays open when the cursor moves on; `e` hides it.
+A container's detail has these sections, in `Tab` order:
+
+- **RELATED** — the image it runs and the compose stack it belongs to. When a newer image carries the tag it was created from, the image row says so.
+- **PORTS** — each exposed port, where it is published on the host, and the URL to reach it.
+- **NETWORKS** — each network it is on, its address there (none while it is stopped), and the DNS names other containers resolve it by.
+- **MOUNTS** — each mount's type, where it comes from (a volume's name, or a bind's host path), and where it's mounted.
+- **DEPENDS ON** — the other containers it relates to, both ways round: compose's `depends_on` (`depends on` / `needed by`), a shared network stack (`--network container:`), and borrowed volumes (`--volumes-from`).
+- **ENV** — environment variables. ENV stays open when the cursor moves on; `e` hides it.
+
+With the cursor on a section, `↑ ↓` select a row and `Enter` opens what it names in its own view — an image, a stack, a network, a volume, another container. `[` comes back.
 
 While the cursor is on the environment variables, the arrow keys select a variable instead of scrolling:
 
@@ -138,17 +149,30 @@ While the cursor is on the environment variables, the arrow keys select a variab
 
 ### Copy menu (`y`)
 
-It copies from the row the cursor is on, or, with no section selected, from the container or volume itself.
+It copies from the row the cursor is on, or, with no section selected, from the panel's subject itself. A letter means the same thing in every menu: `n` a name, `i` an ID, `y` the full form you would type (`NAME=value`, a `-v` or `-p` spec), `a` all of the rows.
 
 | Where | Keys |
 |-------|------|
 | Container, nothing selected | `n` name · `i` ID · `m` image · `a` all variables |
-| A variable | `n` name · `v` value · `y` `NAME=value` · `a` all variables, `NAME=value` one per line |
-| A mount | `n` volume name · `s` source path (a bind's host path) · `d` path in the container · `y` the mount as a `docker run -v` spec · `a` all of them |
+| Image, nothing selected | `n` first tag · `i` ID · `t` all tags, one per line · `a` all user names |
 | Volume, nothing selected | `n` name · `p` mountpoint · `a` all user names |
-| A USED BY row | `n` container name · `i` container ID · `d` path in the container · `y` `-v` spec · `a` all user names |
+| Network, nothing selected | `n` name · `i` ID · `s` subnet(s) · `g` gateway(s) · `a` all user names |
+| Stack, nothing selected | `n` project · `f` compose file(s) · `w` working dir · `a` all service names |
+| A variable | `n` name · `v` value · `y` `NAME=value` · `a` all variables, `NAME=value` one per line |
+| A RELATED image row | `n` image name · `i` image ID · (a volume's) `d` the `VOLUME` path |
+| A RELATED stack row | `n` project · (a container's) `f` compose file(s) · `w` working dir |
+| A port | `u` URL · `y` the binding as a `docker run -p` spec · `a` all of them |
+| A container's network | `n` network name · `p` IP address · `d` DNS names · `a` all network names |
+| A mount | `n` volume name · `s` source path (a bind's host path) · `d` path in the container · `y` the mount as a `docker run -v` spec · `a` all of them |
+| A DEPENDS ON row | `n` container name · `i` container ID · `a` all names |
+| A volume's USED BY row | `n` container name · `i` container ID · `d` path in the container · `y` `-v` spec · `a` all user names |
+| An image's USED BY row | `n` container name · `i` container ID · `a` all user names |
+| A network's USED BY row | `n` container name · `i` container ID · `p` IP address · `d` DNS names · `a` all user names |
+| A stack's SERVICES row | `n` container name · `i` container ID · `m` image · `a` all container names |
+| A stack's VOLUMES row | `n` volume name · `p` mountpoint · `a` all volume names |
+| A stack's NETWORKS row | `n` network name · `i` network ID · `s` subnet · `a` all network names |
 
-`Esc` cancels. Options that don't apply (a bind mount has no volume name) are shown greyed out with the reason.
+`Esc` cancels. Options that don't apply (a bind mount has no volume name, an unpublished port has no URL) are shown greyed out with the reason.
 
 On Docker Desktop a bind's source is reported as `/host_mnt/…`; dockza shows and copies the host path without that prefix.
 
@@ -156,6 +180,7 @@ On Docker Desktop a bind's source is reported as `/host_mnt/…`; dockza shows a
 
 | Key | Action |
 |-----|--------|
+| `Enter` | Open the container's detail (`[` comes back to the logs) |
 | `f` | Toggle follow mode |
 | `g` | Scroll to top |
 | `G` | Scroll to bottom, re-enable follow |
@@ -167,10 +192,17 @@ On Docker Desktop a bind's source is reported as `/host_mnt/…`; dockza shows a
 | Key | Action |
 |-----|--------|
 | `↑ ↓` / `j k` | Navigate list |
-| `Enter` | Volumes: open the volume's detail |
-| `d` | Delete unused item (confirm) |
+| `Enter` | Open the item's detail |
+| `d` | Delete unused item (confirm), also from its detail |
 
-The Volumes list's USED BY column names the containers that mount each volume, running or stopped (`+N` for more). A volume's detail shows its mountpoint and where it came from (a compose project and volume key, or anonymous), and lists its users. `Tab` then `Enter` on one opens that container's detail. Docker keeps no record of the containers that used a volume before, so an unused volume shows only what its labels say.
+Each list's USED BY column names the containers using the item, running or stopped (`+N` for more): those created from an image, mounting a volume, or attached to a network.
+
+- **An image's detail** lists all its tags (the TAG column shows the first and `+N`) and the containers created from it. An image whose tag has since moved on to a newer one says `superseded by <tag>`.
+- **A volume's detail** shows its mountpoint and, under RELATED, where it came from: its compose stack, or that it is anonymous — and, while a container uses it, the image whose `VOLUME` it was made for. Docker keeps no record of the containers that used a volume before, so an unused volume shows only what its labels say.
+- **A network's detail** shows its subnets and gateways, its compose stack, and each attached container with its address and DNS names.
+- **A stack's detail** (`Enter` on a stack in the Stacks view) shows its compose file(s) and working directory, its services, and the volumes and networks its project created.
+
+`Tab` then `Enter` on a row opens what it names. A volume or network whose compose project has no containers left reads `○ orphaned`, and its detail says so instead of linking to a stack.
 
 Networks additionally protect the built-in `bridge` / `host` / `none` networks and any network with attached containers — `d` on those shows a message instead of a confirm dialog. In-use detection is consistent with Images and Volumes: a network counts as in use whenever a container is attached, running or stopped.
 

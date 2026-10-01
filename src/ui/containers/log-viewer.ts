@@ -7,6 +7,10 @@ import type { Dims } from '@ui/widgets';
 type CloseHandler = () => void;
 type FollowChangeHandler = (following: boolean) => void;
 
+interface KeyEvent {
+  full: string;
+}
+
 export class LogViewer {
   private screen: blessed.Widgets.Screen;
   private wrapper: blessed.Widgets.BoxElement;
@@ -22,6 +26,7 @@ export class LogViewer {
   private containerId: string | null = null;
 
   private closeHandlers: CloseHandler[] = [];
+  private detailHandlers: CloseHandler[] = [];
   private followChangeHandlers: FollowChangeHandler[] = [];
 
   private readonly handleF = () => {
@@ -56,6 +61,16 @@ export class LogViewer {
   // A request: the owner closes it, so the close goes through the router's history.
   private readonly handleClose = () => {
     if (this.visible) this.closeHandlers.forEach((h) => h());
+  };
+
+  /**
+   * ↵ asks for the container's detail — a request too, so `[` comes back to the logs. Bound to the
+   * log box, not the screen: the tab's screen-level ↵ (open detail from the list) also exists, and
+   * two `screen.key` handlers on one key don't stack safely. `enter` only: blessed follows it with
+   * a `return` for the same key press.
+   */
+  private readonly handleKey = (_ch: unknown, key: KeyEvent) => {
+    if (this.visible && key.full === 'enter') this.detailHandlers.forEach((h) => h());
   };
 
   constructor(screen: blessed.Widgets.Screen, dims: Dims) {
@@ -98,12 +113,18 @@ export class LogViewer {
       scrollbar: { ch: '│', style: { fg: C.comment } },
       style: { fg: C.fg, bg: C.bg },
     });
+
+    this.logBox.on('keypress', this.handleKey);
   }
 
-  on(event: 'close-request', handler: CloseHandler): void;
+  on(event: 'close-request' | 'detail-request', handler: CloseHandler): void;
   on(event: 'follow-change', handler: FollowChangeHandler): void;
-  on(event: 'close-request' | 'follow-change', handler: CloseHandler | FollowChangeHandler): void {
+  on(
+    event: 'close-request' | 'detail-request' | 'follow-change',
+    handler: CloseHandler | FollowChangeHandler,
+  ): void {
     if (event === 'close-request') this.closeHandlers.push(handler as CloseHandler);
+    if (event === 'detail-request') this.detailHandlers.push(handler as CloseHandler);
     if (event === 'follow-change') this.followChangeHandlers.push(handler as FollowChangeHandler);
   }
 

@@ -3,6 +3,7 @@ import type blessed from 'neo-blessed';
 import type { ContainerInfo } from '@models/docker';
 import { ContainerDetail } from '@ui/containers/container-detail';
 import { stripTags } from '@utils/format';
+import { endpoint, makeContainer } from '../fixtures';
 import { KEY, makeScreen, press } from './headless';
 
 /**
@@ -19,23 +20,17 @@ const LONG_PATH =
 const PATH_VALUE = LONG_PATH.slice('PATH='.length);
 
 function container(env: string[], extra: Partial<ContainerInfo> = {}): ContainerInfo {
-  return {
+  return makeContainer({
     id: 'b5322c040ce6aaaaaaaa',
     name: 'db-pr02',
     image: 'postgres:18',
+    imageName: 'postgres:18',
     status: 'exited',
-    exitCode: 0,
     uptime: 'a day ago',
-    ports: [],
-    networks: ['db-pr02_default'],
-    ip: '',
-    mounts: [],
     env,
-    restartPolicy: 'no',
     pids: 0,
-    labels: {},
     ...extra,
-  };
+  });
 }
 
 /** Lets the copy promise chain (fire-and-forget inside the panel) finish. */
@@ -293,12 +288,10 @@ describe('ContainerDetail sections: Tab, MOUNTS and following links', () => {
     screen.destroy();
   });
 
-  it('Tab walks none → MOUNTS → ENV → none, and Shift+Tab walks back', () => {
+  it('Tab walks none → RELATED → MOUNTS → ENV → none, and Shift+Tab walks back', () => {
     detail.show(withMounts());
-    press(screen, '\t');
-    press(screen, '\t');
-    press(screen, '\t');
-    expect(sections).toEqual(['mounts', 'env', null]);
+    for (let i = 0; i < 4; i++) press(screen, '\t');
+    expect(sections).toEqual(['related', 'mounts', 'env', null]);
     press(screen, '\x1b[Z'); // Shift+Tab
     expect(detail.focusedSection()).toBe('env');
     press(screen, '\x1b[Z');
@@ -309,7 +302,116 @@ describe('ContainerDetail sections: Tab, MOUNTS and following links', () => {
     detail.show(container([], { mounts: [volumeMount] }));
     press(screen, '\t');
     press(screen, '\t');
-    expect(sections).toEqual(['mounts', null]);
+    press(screen, '\t');
+    expect(sections).toEqual(['related', 'mounts', null]);
+  });
+
+  it('NETWORKS: Tab reaches it after RELATED; ↵ opens the network, by name', () => {
+    const networks = [
+      endpoint('dzlink_back', { ip: '172.20.0.2', aliases: ['dzlink-db-1', 'db'] }),
+      endpoint('dzlink_front'),
+    ];
+    detail.show(container(['A=1'], { networks, mounts: [volumeMount] }));
+    expect(stripTags(content(detail))).toMatch(/dzlink_back\s+172\.20\.0\.2\s+dzlink-db-1, db/);
+    expect(stripTags(content(detail))).toMatch(/dzlink_front\s+—/);
+    press(screen, '\t');
+    press(screen, '\t');
+    expect(sections).toEqual(['related', 'networks']);
+    press(screen, KEY.down);
+    press(screen, KEY.enter);
+    expect(gotos).toEqual([{ kind: 'network', id: 'dzlink_front' }]);
+  });
+
+  it('NETWORKS: copies the name, address, DNS names and every network', async () => {
+    const networks = [
+      endpoint('dzlink_back', { ip: '172.20.0.2', aliases: ['dzlink-db-1', 'db'] }),
+      endpoint('dzlink_front'),
+    ];
+    detail.show(container(['A=1'], { networks }));
+    press(screen, '\t');
+    press(screen, '\t');
+    for (const key of ['n', 'p', 'd', 'a']) {
+      press(screen, 'y');
+      press(screen, key);
+    }
+    await settle();
+    expect(copies).toEqual(['dzlink_back', '172.20.0.2', 'dzlink-db-1\ndb', 'dzlink_back\ndzlink_front']);
+  });
+
+  it('DEPENDS ON: lists related containers after MOUNTS; ↵ follows one, once', () => {
+    const db = { id: 'c-db', name: 'dzlink-db-1', status: 'running' as const, exitCode: 0 };
+    detail.show(
+      container(['A=1'], {
+        mounts: [volumeMount],
+        links: [
+          { relation: 'depends-on', container: db, target: 'dzlink-db-1', service: 'db' },
+          { relation: 'depends-on', target: 'cache', service: 'cache' },
+        ],
+      }),
+    );
+    expect(stripTags(content(detail))).toMatch(/depends on\s+● dzlink-db-1\s+\(compose depends_on: db\)/);
+    expect(stripTags(content(detail))).toMatch(/depends on\s+cache\s+no container runs this service/);
+    for (let i = 0; i < 3; i++) press(screen, '\t');
+    expect(sections).toEqual(['related', 'mounts', 'links']);
+    press(screen, KEY.enter);
+    expect(gotos).toEqual([{ kind: 'container', id: 'c-db', label: 'dzlink-db-1' }]);
+    press(screen, KEY.down);
+    press(screen, KEY.enter); // unresolved: leads nowhere
+    expect(gotos).toHaveLength(1);
+  });
+
+  it('PORTS: Tab reaches it after RELATED; copies the URL and -p specs, nothing to follow', async () => {
+    const ports = [
+      { ip: '127.0.0.1', publicPort: 18080, privatePort: 80, type: 'tcp' },
+      { privatePort: 5432, type: 'tcp' },
+    ];
+    detail.show(container(['A=1'], { ports }));
+    expect(stripTags(content(detail))).toMatch(
+      /127\.0\.0\.1:18080\s+→ 80\/tcp\s+http:\/\/127\.0\.0\.1:18080/,
+    );
+    expect(stripTags(content(detail))).toMatch(/—\s+→ 5432\/tcp\s+not published/);
+    press(screen, '\t');
+    press(screen, '\t');
+    expect(sections).toEqual(['related', 'ports']);
+    press(screen, KEY.enter);
+    expect(gotos).toEqual([]);
+    for (const key of ['u', 'y', 'a']) {
+      press(screen, 'y');
+      press(screen, key);
+    }
+    press(screen, KEY.down);
+    press(screen, 'y');
+    press(screen, 'u'); // disabled: not published
+    press(screen, KEY.escape);
+    await settle();
+    expect(copies).toEqual(['http://127.0.0.1:18080', '127.0.0.1:18080:80/tcp', '127.0.0.1:18080:80/tcp']);
+  });
+
+  it('RELATED: ↵ on the image opens the exact image it runs, once', () => {
+    detail.show(withMounts());
+    press(screen, '\t');
+    press(screen, KEY.enter);
+    expect(gotos).toEqual([{ kind: 'image', id: 'sha256:img', label: 'postgres:18' }]);
+  });
+
+  it('RELATED: says when a newer image carries its tag', () => {
+    detail.show(withMounts());
+    expect(stripTags(content(detail))).toMatch(/image\s+postgres:18\s*\n/);
+    detail.update(container(['A=1'], { outdated: { tag: 'postgres:18', currentImageId: 'sha256:new' } }));
+    expect(stripTags(content(detail))).toMatch(
+      /image\s+postgres:18\s+newer image for postgres:18 available locally/,
+    );
+  });
+
+  it('RELATED: copies the image name and ID', async () => {
+    detail.show(withMounts());
+    press(screen, '\t');
+    for (const key of ['n', 'i']) {
+      press(screen, 'y');
+      press(screen, key);
+    }
+    await settle();
+    expect(copies).toEqual(['postgres:18', 'sha256:img']);
   });
 
   it('ENV stays open when the cursor moves on; e then hides it', () => {
@@ -326,6 +428,7 @@ describe('ContainerDetail sections: Tab, MOUNTS and following links', () => {
 
   it('↵ on a bind does nothing; on a volume mount it follows, exactly once', () => {
     detail.show(withMounts());
+    press(screen, '\t');
     press(screen, '\t'); // MOUNTS, on the bind (/sql)
     press(screen, KEY.enter);
     expect(gotos).toEqual([]);
@@ -337,6 +440,7 @@ describe('ContainerDetail sections: Tab, MOUNTS and following links', () => {
 
   it('copies a mount: volume name, source, destination, -v spec', async () => {
     detail.show(withMounts());
+    press(screen, '\t');
     press(screen, '\t');
     press(screen, 'y');
     press(screen, 's'); // the bind's host path
@@ -357,6 +461,7 @@ describe('ContainerDetail sections: Tab, MOUNTS and following links', () => {
 
   it('gives its focus for history, and takes it back', () => {
     detail.show(withMounts());
+    press(screen, '\t');
     press(screen, '\t');
     press(screen, KEY.down);
     const focus = detail.getFocus();

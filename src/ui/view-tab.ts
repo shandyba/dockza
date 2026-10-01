@@ -1,5 +1,5 @@
 import type { Location, PanelLoc, ResourceRef, ViewId } from '@models/nav';
-import type { FooterContext } from '@ui/footer';
+import type { FooterHints } from '@ui/footer';
 
 /**
  * How a tab asks to go somewhere. It never opens or closes a panel on the user's say-so itself:
@@ -34,7 +34,8 @@ export interface ViewTab {
   restore(loc: Location): boolean;
   /** Whether `follow(ref)` can land here. */
   has(ref: ResourceRef): boolean;
-  footerContext(): FooterContext;
+  /** A named context, or the hints of the panel section holding the cursor. */
+  footerContext(): FooterHints;
   /** A panel or modal is up: switching views stays off. */
   isOverlayOpen(): boolean;
   /** A confirm or the filter holds the keys: history and help stay off too. */

@@ -1,10 +1,8 @@
 import type Dockerode from 'dockerode';
 import { dockerode } from '@docker/client';
 import type { VolumeInfo } from '@models/docker';
+import { COMPOSE_PROJECT_LABEL, COMPOSE_VOLUME_LABEL } from '@utils/compose';
 import { isAnonymousVolume } from '@utils/mounts';
-
-const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
-const COMPOSE_VOLUME_LABEL = 'com.docker.compose.volume';
 
 interface DfVolume {
   Name?: string;

@@ -1,5 +1,7 @@
-import type { ContainerInfo, VolumeInfo } from '@models/docker';
+import type { ContainerInfo, ImageInfo, NetworkInfo, VolumeInfo } from '@models/docker';
 import type { Location, PanelLoc, ResourceRef, ViewId } from '@models/nav';
+import { shortId } from '@utils/format';
+import type { Stack } from '@utils/stacks';
 
 const DEFAULT_CAP = 100;
 
@@ -79,6 +81,9 @@ export function samePlace(a: Location, b: Location): boolean {
 const VIEW_FOR: Record<ResourceRef['kind'], ViewId> = {
   container: 'containers',
   volume: 'volumes',
+  image: 'images',
+  network: 'networks',
+  stack: 'stacks',
 };
 
 /** The view a reference opens in. */
@@ -97,4 +102,23 @@ export function containerRef(c: Pick<ContainerInfo, 'id' | 'name'>): ResourceRef
 
 export function volumeRef(v: Pick<VolumeInfo, 'name'>): ResourceRef {
   return { kind: 'volume', id: v.name };
+}
+
+/** How an image is named: its first tag, or its short ID when it has none. */
+export function imageLabel(img: Pick<ImageInfo, 'id' | 'tags'>): string {
+  return img.tags[0] ?? shortId(img.id);
+}
+
+/** By full ID (`sha256:…`), as the Images list keys its rows; named by the tag it shows. */
+export function imageRef(img: Pick<ImageInfo, 'id' | 'tags'>): ResourceRef {
+  return { kind: 'image', id: img.id, label: imageLabel(img) };
+}
+
+/** By name, not ID: a stopped container can hold a stale network ID (see `withNetworkUsers`). */
+export function networkRef(net: Pick<NetworkInfo, 'name'>): ResourceRef {
+  return { kind: 'network', id: net.name };
+}
+
+export function stackRef(stack: Pick<Stack, 'id'>): ResourceRef {
+  return { kind: 'stack', id: stack.id };
 }

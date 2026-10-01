@@ -1,26 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import type { ContainerInfo, MountInfo, VolumeInfo, VolumeUser } from '@models/docker';
-import { stripTags } from '@utils/format';
-import { formatUsedBy, volumeUsers, withUsers } from '@utils/volume-users';
+import type { ContainerInfo, MountInfo } from '@models/docker';
+import { volumeUsers, withUsers } from '@utils/volume-users';
+import { makeContainer, makeVolume } from '../fixtures';
 
 function container(name: string, mounts: MountInfo[], extra: Partial<ContainerInfo> = {}): ContainerInfo {
-  return {
-    id: `${name}-id`,
-    name,
-    image: 'img',
-    status: 'running',
-    exitCode: 0,
-    uptime: '',
-    ports: [],
-    networks: [],
-    ip: '',
-    mounts,
-    env: [],
-    restartPolicy: 'no',
-    pids: 0,
-    labels: {},
-    ...extra,
-  };
+  return makeContainer({ id: `${name}-id`, name, mounts, ...extra });
 }
 
 const vol = (name: string, destination: string, rw = true): MountInfo => ({
@@ -32,17 +16,7 @@ const vol = (name: string, destination: string, rw = true): MountInfo => ({
   rw,
 });
 
-const volume = (name: string): VolumeInfo => ({
-  name,
-  driver: 'local',
-  mountpoint: `/var/lib/docker/volumes/${name}/_data`,
-  created: new Date(0),
-  sizeMB: 0,
-  labels: {},
-  anonymous: false,
-  users: [],
-  inUse: false,
-});
+const volume = (name: string) => makeVolume(name);
 
 describe('volumeUsers', () => {
   it('lists every container mounting a volume, with where and how', () => {
@@ -104,36 +78,5 @@ describe('withUsers', () => {
     withUsers(volumes, [container('db', [vol('pgdata', '/x')])]);
     expect(volumes[0].users).toEqual([]);
     expect(volumes[0].inUse).toBe(false);
-  });
-});
-
-describe('formatUsedBy', () => {
-  const user = (name: string, id = `${name}-id`): VolumeUser => ({
-    id,
-    name,
-    status: 'running',
-    exitCode: 0,
-    destination: '/data',
-    rw: true,
-  });
-  const plain = (s: string): string => stripTags(s);
-
-  it('shows a dash when nothing uses the volume', () => {
-    expect(plain(formatUsedBy([], 20))).toBe('—');
-  });
-
-  it('shows the first user with its status dot', () => {
-    expect(plain(formatUsedBy([user('db-pr02')], 20))).toBe('● db-pr02');
-  });
-
-  it('counts the other containers, not their mounts', () => {
-    const users = [user('web'), user('web'), user('worker'), user('cron')];
-    expect(plain(formatUsedBy(users, 30))).toBe('● web +2');
-  });
-
-  it('fits the name so the cell stays within width - 1', () => {
-    const cell = plain(formatUsedBy([user('a-very-long-container-name'), user('b')], 14));
-    expect(cell).toBe('● a-very-… +1');
-    expect(cell.length).toBeLessThanOrEqual(13);
   });
 });

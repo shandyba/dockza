@@ -3,7 +3,7 @@ import { removeVolume } from '@docker/volumes';
 import type { VolumeInfo } from '@models/docker';
 import { t } from '@theme';
 import { humanSizeMB, truncate } from '@utils/format';
-import { formatUsedBy } from '@utils/volume-users';
+import { formatUsedBy } from '@utils/list-cells';
 import { ResourceListTab } from '@ui/resource-list-tab';
 import { VolumeDetail } from '@ui/volumes/volume-detail';
 import type { TabNav } from '@ui/view-tab';
@@ -26,7 +26,7 @@ export class VolumesTab extends ResourceListTab<VolumeInfo> {
         detail: {
           kind: 'volume',
           create: (s, d) => new VolumeDetail(s, d),
-          footer: (section) => (section === 'users' ? 'volume-detail-users' : 'volume-detail'),
+          footer: 'volume-detail',
         },
         columns: [
           { header: 'NAME', weight: 0.25, render: (vol, w) => truncate(vol.name, w - 1) },
@@ -45,7 +45,8 @@ export class VolumesTab extends ResourceListTab<VolumeInfo> {
           {
             header: 'STATUS',
             weight: 0,
-            render: (vol) => (vol.inUse ? t.green('● in use') : t.red('○ unused')),
+            render: (vol) =>
+              vol.inUse ? t.green('● in use') : t.red(vol.orphaned ? '○ orphaned' : '○ unused'),
           },
         ],
       },

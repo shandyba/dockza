@@ -1,5 +1,6 @@
 import type { ResourceRef } from '@models/nav';
 import type { CopyOption } from '@ui/copy-menu';
+import type { Hint } from '@ui/footer';
 
 export interface SectionRender {
   /** Header first, then the rows. */
@@ -41,4 +42,6 @@ export interface PanelSection {
   rowKey(): string | undefined;
   /** Select the row with this key; false (selection unchanged) when it is gone. */
   selectRow(key: string): boolean;
+  /** The footer's hints while the cursor is here. Without them the panel's base context shows. */
+  footerHints?(): Hint[];
 }

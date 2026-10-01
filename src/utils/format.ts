@@ -30,6 +30,11 @@ export function dateTime(date: Date): string {
   return dayjs(date).format('YYYY-MM-DD HH:mm');
 }
 
+/** A container or image ID as docker prints it: 12 hex digits, without `sha256:`. */
+export function shortId(id: string): string {
+  return id.replace(/^sha256:/, '').slice(0, 12);
+}
+
 export function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return s.slice(0, n - 1) + '…';

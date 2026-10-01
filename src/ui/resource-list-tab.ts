@@ -1,7 +1,7 @@
 import blessed from 'neo-blessed';
 import type { Location, PanelFocus, ResourceKind, ResourceRef, ViewId } from '@models/nav';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
-import type { FooterContext } from '@ui/footer';
+import type { FooterContext, FooterHints, Hint } from '@ui/footer';
 import type { TabNav, ViewTab } from '@ui/view-tab';
 import { t } from '@theme';
 import { padEnd, truncate } from '@utils/format';
@@ -35,6 +35,7 @@ export interface ResourceDetail<T> {
   hide(): void;
   isVisible(): boolean;
   focusedSection(): string | null;
+  focusedHints(): Hint[] | null;
   getFocus(): PanelFocus | undefined;
   setFocus(focus: PanelFocus | undefined): void;
   on(event: 'close-request', handler: Handler): void;
@@ -49,8 +50,8 @@ export interface ResourceDetailConfig<T> {
   /** Human name for messages, when the key isn't one (an image ID, say). */
   label?: (item: T) => string;
   create: (screen: blessed.Widgets.Screen, dims: Dims) => ResourceDetail<T>;
-  /** Footer hints while the panel is open, by the section holding its cursor. */
-  footer: (section: string | null) => FooterContext;
+  /** Footer hints while the panel is open with no section selected; a selected one brings its own. */
+  footer: FooterContext;
 }
 
 export interface ResourceListConfig<T> {
@@ -258,8 +259,8 @@ export class ResourceListTab<T> implements ViewTab {
     return ref.kind === this.config.detail?.kind && this.items.some((i) => this.config.getKey(i) === ref.id);
   }
 
-  footerContext(): FooterContext {
-    if (this.detail?.isVisible()) return this.config.detail!.footer(this.detail.focusedSection());
+  footerContext(): FooterHints {
+    if (this.detail?.isVisible()) return this.detail.focusedHints() ?? this.config.detail!.footer;
     return this.config.footer;
   }
 

@@ -1,20 +1,37 @@
 import type blessed from 'neo-blessed';
-import type { ContainerInfo, ContainerStats, MountInfo } from '@models/docker';
+import type {
+  ContainerInfo,
+  ContainerLink,
+  ContainerStats,
+  MountInfo,
+  NetworkEndpoint,
+  PortInfo,
+} from '@models/docker';
 import type { PanelFocus, ResourceRef } from '@models/nav';
 import { t } from '@theme';
-import { escapeTags, humanSizeMB, oneLine } from '@utils/format';
+import { escapeTags, humanSizeMB, oneLine, shortId } from '@utils/format';
+import { shownImage } from '@utils/outdated';
 import { colorByStatus, cpuColor, isActive, memColor, statusLabel } from '@utils/status';
 import { textOption, type CopyOption } from '@ui/copy-menu';
+import { containerRelated } from '@ui/containers/container-related';
 import { EnvSection } from '@ui/containers/env-section';
+import { LINK_ROWS } from '@ui/containers/link-rows';
 import { MOUNT_ROWS } from '@ui/containers/mount-rows';
+import { NETWORK_ROWS } from '@ui/containers/network-rows';
+import { PORT_ROWS } from '@ui/containers/port-rows';
 import { DetailPanel, type CopyFn } from '@ui/detail/detail-panel';
 import type { PanelSection } from '@ui/detail/panel-section';
 import { RefSection } from '@ui/detail/ref-section';
+import { relatedRows, type RelatedRow } from '@ui/detail/related-rows';
+import type { Hint } from '@ui/footer';
 import { charWidth, type Dims } from '@ui/widgets';
 
 export type { CopyFn } from '@ui/detail/detail-panel';
 
 const BAR_WIDTH = 20;
+
+/** Untrusted text (names, labels) for tagged content. */
+const safe = (s: string): string => escapeTags(oneLine(s));
 
 type Handler = () => void;
 type SectionHandler = (section: string | null) => void;
@@ -22,12 +39,17 @@ type GotoHandler = (ref: ResourceRef) => void;
 type MessageHandler = (message: string) => void;
 
 /**
- * A container's detail: summary, live stats, MOUNTS and ENV, inside the shared `DetailPanel`.
- * Tab walks the cursor MOUNTS → ENV; ↵ on a volume mount opens that volume's detail.
+ * A container's detail: summary, live stats, RELATED, MOUNTS and ENV, inside the shared
+ * `DetailPanel`. Tab walks the cursor through the sections in the order they're shown; ↵ on a
+ * reference (its image, a volume mount) opens that object's detail.
  */
 export class ContainerDetail {
   private readonly panel: DetailPanel;
+  private related = new RefSection<RelatedRow>(relatedRows('none'), charWidth);
+  private ports = new RefSection<PortInfo>(PORT_ROWS, charWidth);
+  private networks = new RefSection<NetworkEndpoint>(NETWORK_ROWS, charWidth);
   private mounts = new RefSection<MountInfo>(MOUNT_ROWS, charWidth);
+  private links = new RefSection<ContainerLink>(LINK_ROWS, charWidth);
   private env = new EnvSection(charWidth);
 
   private container: ContainerInfo | null = null;
@@ -40,7 +62,7 @@ export class ContainerDetail {
       {
         header: () => this.header(),
         blocks: () => this.blocks(),
-        sections: () => [this.mounts, this.env],
+        sections: () => [this.related, this.ports, this.networks, this.mounts, this.links, this.env],
         subjectCopy: () => this.subjectCopy(),
         onKey: (key) => this.onKey(key),
       },
@@ -67,7 +89,11 @@ export class ContainerDetail {
   show(container: ContainerInfo, stats?: ContainerStats): void {
     this.container = container;
     if (stats !== undefined) this.lastStats = stats;
+    this.related.reset(containerRelated(container));
+    this.ports.reset(container.ports);
+    this.networks.reset(container.networks);
     this.mounts.reset(container.mounts);
+    this.links.reset(container.links ?? []);
     this.env.reset(container.env);
     this.panel.show();
   }
@@ -80,7 +106,11 @@ export class ContainerDetail {
   update(container: ContainerInfo, stats?: ContainerStats): void {
     this.container = container;
     if (stats !== undefined) this.lastStats = stats;
+    this.related.setRows(containerRelated(container));
+    this.ports.setRows(container.ports);
+    this.networks.setRows(container.networks);
     this.mounts.setRows(container.mounts);
+    this.links.setRows(container.links ?? []);
     this.env.setVars(container.env);
     this.panel.refresh();
   }
@@ -95,6 +125,10 @@ export class ContainerDetail {
 
   focusedSection(): string | null {
     return this.panel.focusedSection();
+  }
+
+  focusedHints(): Hint[] | null {
+    return this.panel.focusedHints();
   }
 
   getFocus(): PanelFocus | undefined {
@@ -124,7 +158,7 @@ export class ContainerDetail {
     return [
       textOption('n', 'name', c.name, 'container name'),
       textOption('i', 'ID', c.id, 'container ID'),
-      textOption('m', 'image', c.image, 'image'),
+      textOption('m', 'image', c.imageName, 'image'),
       ...(allEnv ? [{ ...allEnv, label: `all env (${this.env.count()})` }] : []),
     ];
   }
@@ -140,26 +174,14 @@ export class ContainerDetail {
     const stats = this.lastStats;
     const lines: Array<string | PanelSection> = [];
 
-    lines.push(`{bold}${t.purple(c.name)}{/bold}  ${t.comment(`${c.image} · ${c.id.slice(0, 12)}`)}`);
+    const image = `${c.outdated ? t.orange('↑ ') : ''}${t.comment(safe(shownImage(c)))}`;
+    lines.push(`{bold}${t.purple(safe(c.name))}{/bold}  ${image}${t.comment(` · ${shortId(c.id)}`)}`);
     lines.push(colorByStatus(c, `● ${statusLabel(c)}`));
     lines.push('');
 
     lines.push(`${t.comment('Uptime:')}   ${colorByStatus(c, c.uptime)}`);
     lines.push(`${t.comment('Restart:')}  ${c.restartPolicy}`);
     lines.push(`${t.comment('PIDs:')}     ${c.status === 'running' ? String(c.pids) : t.comment('—')}`);
-
-    if (c.ports.length > 0) {
-      lines.push('');
-      lines.push(t.comment('Ports:'));
-      for (const p of c.ports) lines.push(`  ${t.pink(p)}`);
-    }
-
-    if (c.networks.length > 0) {
-      lines.push('');
-      const info = c.ip ? `${c.networks[0]} · ${c.ip}` : c.networks[0];
-      lines.push(`${t.comment('Network:')}  ${t.cyan(info)}`);
-      for (const n of c.networks.slice(1)) lines.push(`           ${t.cyan(n)}`);
-    }
 
     if (stats && c.status === 'running') {
       lines.push('');
@@ -168,9 +190,27 @@ export class ContainerDetail {
       lines.push(this.diskLine(stats.diskReadMB, stats.diskWriteMB));
     }
 
+    lines.push('');
+    lines.push(this.related);
+
+    if (c.ports.length > 0) {
+      lines.push('');
+      lines.push(this.ports);
+    }
+
+    if (c.networks.length > 0) {
+      lines.push('');
+      lines.push(this.networks);
+    }
+
     if (c.mounts.length > 0) {
       lines.push('');
       lines.push(this.mounts);
+    }
+
+    if (this.links.count() > 0) {
+      lines.push('');
+      lines.push(this.links);
     }
 
     lines.push('');

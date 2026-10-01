@@ -1,12 +1,18 @@
 import blessed from 'neo-blessed';
 import { getDockerSocketLabel, getDockerVersion } from '@docker/client';
 import { listContainers, fetchStats } from '@docker/containers';
-import { listImages } from '@docker/images';
+import { inspectImage, listImages } from '@docker/images';
 import { listVolumes } from '@docker/volumes';
 import { listNetworks } from '@docker/networks';
-import type { ContainerInfo, VolumeInfo } from '@models/docker';
+import type { ContainerInfo, ImageInfo, NetworkInfo, VolumeInfo } from '@models/docker';
 import type { ResourceRef, ViewId } from '@models/nav';
+import { withLinks } from '@utils/container-links';
+import { withImageUsers } from '@utils/image-users';
 import { describeRef, viewForRef } from '@utils/nav-history';
+import { withNetworkUsers } from '@utils/network-users';
+import { liveProjects, markOrphans } from '@utils/orphans';
+import { markOutdated } from '@utils/outdated';
+import { imagesToInspect, withProvenance } from '@utils/provenance';
 import { groupIntoStacks, type Stack } from '@utils/stacks';
 import { withUsers } from '@utils/volume-users';
 import { isActive } from '@utils/status';
@@ -45,18 +51,30 @@ export class App {
 
   private overlayOpen = false;
 
+  /** As the daemon lists them. */
+  private listed: ContainerInfo[] = [];
+  /** `listed`, joined with what the other listings say about each (a newer image) and each other. */
   private containers: ContainerInfo[] = [];
   private stacks: Stack[] = [];
-  private imageCount = 0;
-  /** Null until the first fetch lands, so the tab keeps "Loading…" rather than flashing "No volumes". */
+  // Each null until its first fetch lands, so the tab keeps "Loading…" rather than flashing "No images".
+  private images: ImageInfo[] | null = null;
   private volumes: VolumeInfo[] | null = null;
-  private networkCount = 0;
+  private networks: NetworkInfo[] | null = null;
+  /** The volumes and networks as last pushed: joined with their users, orphans marked. */
+  private joinedVolumes: VolumeInfo[] = [];
+  private joinedNetworks: NetworkInfo[] = [];
+  /** No container listing yet: no project can be called empty. */
+  private containersListed = false;
+  /** Each inspected image's declared `VOLUME`s, by image ID: where anonymous volumes come from. */
+  private readonly imageVolumes = new Map<string, string[]>();
   private aggregateStats: { cpuPercent: number; memUsageMB: number } | null = null;
 
   private pollTimers: NodeJS.Timeout[] = [];
   private footerMsgTimer: NodeJS.Timeout | null = null;
   private exitResolve: (() => void) | null = null;
   private pollingStats = false;
+  /** Polling has stopped (shutting down): late results must not render into a destroyed screen. */
+  private stopped = false;
 
   // One gate per listing so a mutation only invalidates the data it can affect — deleting an
   // image must not force a `listVolumes()` (which pays for a `docker system df`), and a slow
@@ -190,8 +208,7 @@ export class App {
       return;
     }
     this.setFooterMessage(`${describeRef(ref)} isn't listed yet — refreshing`, 'normal');
-    const gate = viewForRef(ref) === 'volumes' ? this.volumesGate : this.containersGate;
-    void gate.poll();
+    void this.gateFor(viewForRef(ref)).poll();
   }
 
   /**
@@ -316,6 +333,14 @@ export class App {
     });
   }
 
+  /** The listing a view's rows come from. Stacks are grouped containers. */
+  private gateFor(view: ViewId): RefreshGate {
+    if (view === 'images') return this.imagesGate;
+    if (view === 'volumes') return this.volumesGate;
+    if (view === 'networks') return this.networksGate;
+    return this.containersGate;
+  }
+
   private resourceGates(): RefreshGate[] {
     return [this.imagesGate, this.volumesGate, this.networksGate];
   }
@@ -332,12 +357,12 @@ export class App {
   }
 
   private applyContainers(containers: ContainerInfo[]): void {
-    this.containers = containers;
-    this.stacks = groupIntoStacks(containers);
-    this.stacksTab.setData(containers, this.stacks);
-    this.containersTab.setData(containers);
+    this.listed = containers;
+    this.containersListed = true;
+    this.pushContainers();
+    this.pushImages();
     this.pushVolumes();
-    this.rail.setStacks(this.stacks);
+    this.pushNetworks();
     this.refreshTopBarCounters();
     this.refreshRailCounts();
     this.footer.noteRefresh();
@@ -348,8 +373,10 @@ export class App {
     try {
       const images = await listImages();
       if (!this.imagesGate.isCurrent(token)) return;
-      this.imageCount = images.length;
-      this.imagesTab.setData(images);
+      this.images = images;
+      // Which containers run an outdated image changes with either listing.
+      this.pushContainers();
+      this.pushImages();
       this.afterResourceFetch();
     } catch (err) {
       if (!this.imagesGate.isCurrent(token)) return;
@@ -370,17 +397,73 @@ export class App {
     }
   }
 
-  /** Volumes joined with who mounts them. Re-run on either listing, so USED BY tracks the containers poll. */
+  /** The containers joined with the other listings, to the views that list them. */
+  private pushContainers(): void {
+    this.containers = withLinks(markOutdated(this.listed, this.images ?? []));
+    this.stacks = groupIntoStacks(this.containers);
+    this.stacksTab.setData(this.containers, this.stacks);
+    this.containersTab.setData(this.containers);
+    this.rail.setStacks(this.stacks);
+  }
+
+  /**
+   * Each resource listing joined with the containers using it. Re-run on either listing, so a
+   * USED BY tracks the containers poll.
+   */
+  private pushImages(): void {
+    if (this.images) this.imagesTab.setData(withImageUsers(this.images, this.containers));
+  }
+
   private pushVolumes(): void {
-    if (this.volumes) this.volumesTab.setData(withUsers(this.volumes, this.containers));
+    if (!this.volumes) return;
+    const used = withUsers(this.volumes, this.containers);
+    const traced = withProvenance(used, this.containers, this.imageVolumes, this.images ?? []);
+    this.joinedVolumes = this.withOrphans(traced);
+    this.volumesTab.setData(this.joinedVolumes);
+    this.stacksTab.setResources(this.joinedVolumes, this.joinedNetworks);
+    void this.inspectImages();
+  }
+
+  /**
+   * Inspects the images anonymous volumes may have come from (once each: an image never changes),
+   * then joins what they declare back in. A failed inspect is skipped and tried again next poll.
+   */
+  private async inspectImages(): Promise<void> {
+    const missing = imagesToInspect(this.volumes ?? [], this.containers).filter(
+      (id) => !this.imageVolumes.has(id),
+    );
+    if (missing.length === 0) return;
+    const results = await Promise.allSettled(missing.map((id) => inspectImage(id)));
+    if (this.stopped) return;
+    let learned = false;
+    results.forEach((r, i) => {
+      if (r.status !== 'fulfilled' || this.imageVolumes.has(missing[i])) return;
+      this.imageVolumes.set(missing[i], r.value.volumes);
+      learned = true;
+    });
+    if (!learned) return;
+    this.pushVolumes();
+    this.render();
+  }
+
+  private pushNetworks(): void {
+    if (!this.networks) return;
+    this.joinedNetworks = this.withOrphans(withNetworkUsers(this.networks, this.containers));
+    this.networksTab.setData(this.joinedNetworks);
+    this.stacksTab.setResources(this.joinedVolumes, this.joinedNetworks);
+  }
+
+  /** Volumes or networks whose compose project has no containers left, marked as such. */
+  private withOrphans<T extends VolumeInfo | NetworkInfo>(items: T[]): T[] {
+    return this.containersListed ? markOrphans(items, liveProjects(this.stacks)) : items;
   }
 
   private async fetchNetworks(token: number): Promise<void> {
     try {
       const networks = await listNetworks();
       if (!this.networksGate.isCurrent(token)) return;
-      this.networkCount = networks.length;
-      this.networksTab.setData(networks);
+      this.networks = networks;
+      this.pushNetworks();
       this.afterResourceFetch();
     } catch (err) {
       if (!this.networksGate.isCurrent(token)) return;
@@ -446,9 +529,9 @@ export class App {
     this.rail.setCounts({
       stacks: this.stacks.length,
       containers: this.containers.length,
-      images: this.imageCount,
+      images: this.images?.length ?? 0,
       volumes: this.volumes?.length ?? 0,
-      networks: this.networkCount,
+      networks: this.networks?.length ?? 0,
     });
   }
 
@@ -460,6 +543,7 @@ export class App {
   }
 
   private stopPolling(): void {
+    this.stopped = true;
     for (const timer of this.pollTimers) clearInterval(timer);
     this.pollTimers = [];
     // Neutralize in-flight fetches so none of them renders into a destroyed screen.

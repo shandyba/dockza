@@ -10,6 +10,15 @@ export function isActive(status: ContainerStatus): boolean {
   return ACTIVE_STATUSES.has(status);
 }
 
+/** Containers listed under something they use: running ones first, so a summary names a live one. */
+export function compareUsers(
+  a: Pick<ContainerInfo, 'status' | 'name'>,
+  b: Pick<ContainerInfo, 'status' | 'name'>,
+): number {
+  const rank = (s: ContainerStatus): number => (isActive(s) ? 0 : 1);
+  return rank(a.status) - rank(b.status) || a.name.localeCompare(b.name);
+}
+
 export function statusDot(c: StatusSubset): string {
   switch (c.status) {
     case 'running':

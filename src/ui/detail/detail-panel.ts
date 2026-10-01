@@ -5,6 +5,7 @@ import { copyToClipboard, describeCopy, type CopyResult } from '@utils/clipboard
 import { revealRange } from '@utils/viewport';
 import { CopyMenu, type CopyOption, type PickedCopyOption } from '@ui/copy-menu';
 import type { PanelSection } from '@ui/detail/panel-section';
+import type { Hint } from '@ui/footer';
 import { createHeaderBar, type Dims } from '@ui/widgets';
 
 /** Puts text on the clipboard. Injected so tests don't touch the real one. */
@@ -210,6 +211,11 @@ export class DetailPanel {
 
   focusedSection(): string | null {
     return this.focused?.id ?? null;
+  }
+
+  /** The focused section's footer hints; `null` with none focused (the owner's base context shows). */
+  focusedHints(): Hint[] | null {
+    return this.focused?.footerHints?.() ?? null;
   }
 
   /** Puts the cursor on a section (`null`: none), revealing its selected row. */

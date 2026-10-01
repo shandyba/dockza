@@ -1,7 +1,7 @@
 import type { ContainerInfo } from '@models/docker';
+import { COMPOSE_PROJECT_LABEL } from '@utils/compose';
 
 export const NO_STACK = '(no stack)';
-const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
 const DEFAULT_NETWORK_SUFFIX = '_default';
 
 export interface StackCounts {
@@ -30,12 +30,19 @@ export function classifyContainer(c: ContainerInfo): ServiceClass {
   return 'stopped';
 }
 
-function detectStack(c: ContainerInfo): { id: string; isCompose: boolean } {
+/**
+ * The stack a container belongs to: its compose project, or — for one compose didn't label — the
+ * project its `<project>_default` network names. `NO_STACK` when neither says.
+ */
+export function detectStack(c: Pick<ContainerInfo, 'labels' | 'networks'>): {
+  id: string;
+  isCompose: boolean;
+} {
   const labeled = c.labels[COMPOSE_PROJECT_LABEL];
   if (labeled) return { id: labeled, isCompose: true };
   for (const net of c.networks) {
-    if (net.endsWith(DEFAULT_NETWORK_SUFFIX)) {
-      return { id: net.slice(0, -DEFAULT_NETWORK_SUFFIX.length), isCompose: true };
+    if (net.name.endsWith(DEFAULT_NETWORK_SUFFIX)) {
+      return { id: net.name.slice(0, -DEFAULT_NETWORK_SUFFIX.length), isCompose: true };
     }
   }
 
@@ -87,4 +94,11 @@ export function groupIntoStacks(containers: ContainerInfo[]): Stack[] {
   });
 
   return stacks;
+}
+
+/** Where a stack's compose project lives, from its services' labels. Empty when compose didn't label it. */
+export function stackCompose(stack: Pick<Stack, 'services'>): { configFiles: string[]; workingDir?: string } {
+  const labelled = stack.services.find((c) => c.compose && c.compose.configFiles.length > 0);
+  const workingDir = stack.services.find((c) => c.compose?.workingDir)?.compose?.workingDir;
+  return { configFiles: labelled?.compose?.configFiles ?? [], ...(workingDir ? { workingDir } : {}) };
 }
