@@ -7,6 +7,49 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-01
+
+### Fixed
+
+- **A port published on all interfaces was listed twice** — since 0.1.0. Docker reports
+  it on both `0.0.0.0` and `::`; dockza now shows it once, and sorts ports so they stop
+  reshuffling between polls.
+- **An image pulled by digest showed a mangled name** — since 0.1.0. Docker's containerd
+  image store lists it as `repo@sha256:…`, which read as repository `repo@sha256`; it now
+  splits at the `@`.
+
+### Changed
+
+- **`Enter` on a stack opens its detail** instead of expanding or collapsing it — `→` /
+  `←` still do that.
+
+### Added
+
+- **Images, networks and stacks get a detail panel.** `Enter` opens one: an image's tags
+  and the containers created from it; a network's subnets, gateways and attached
+  containers, with their addresses and DNS names; a stack's compose files, services,
+  volumes and networks.
+- **A container's detail shows what it connects to:** its image and stack, published
+  ports with a URL for each, its address and DNS names on each network, and the
+  containers it relates to through `depends_on`, `--network container:` or
+  `--volumes-from`, both ways round.
+- **Every reference is a link.** `Enter` on any of those rows opens the image, stack,
+  network, volume or container it names, and `[` comes back.
+- **Lists say who uses what.** The Images and Networks lists gain a USED BY column,
+  replacing the Networks list's container count, and the NET, PORTS and TAG columns add
+  `+N` where there is more than the one shown.
+- **Containers running an outdated image are marked.** An orange `↑` flags a container
+  whose image tag now points at a newer local image, where the list used to show a bare
+  image ID; the image's detail says `superseded by <tag>`.
+- **Leftovers of removed compose projects are marked.** A volume or network whose
+  project has no containers left reads `○ orphaned`.
+- **An anonymous volume's detail names the image that created it**, from the `VOLUME`
+  a container mounts it at — so only while one does.
+- **`Enter` in the log viewer opens the container's detail**; `[` returns to the logs.
+- **More to copy.** `y` adds a port's URL or `-p` spec, a container's address and DNS
+  names on a network, an image's tags, a network's subnets and gateways, and a stack's
+  compose files and working directory.
+
 ## [0.3.0] - 2026-10-01
 
 ### Fixed
@@ -227,7 +270,8 @@ First public release on npm, as `docktui`.
 
 Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
 
-[Unreleased]: https://github.com/shandyba/dockza/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/shandyba/dockza/releases/tag/v0.3.1
 [0.3.0]: https://github.com/shandyba/dockza/releases/tag/v0.3.0
 [0.2.6]: https://github.com/shandyba/dockza/releases/tag/v0.2.6
 [0.2.5]: https://github.com/shandyba/dockza/releases/tag/v0.2.5
