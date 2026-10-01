@@ -75,7 +75,8 @@ export class ContainerList {
     this.messageBox.show();
   }
 
-  setData(containers: ContainerInfo[], stats?: Map<string, RowStats>): void {
+  /** `emptyMessage` shows when there are no rows (with a filter on, say what didn't match). */
+  setData(containers: ContainerInfo[], stats?: Map<string, RowStats>, emptyMessage = 'No containers'): void {
     this.containers = containers;
     this.messageBox.hide();
 
@@ -88,17 +89,13 @@ export class ContainerList {
     this.list.setItems(items as unknown as blessed.Widgets.BlessedElement[]);
 
     if (containers.length === 0) {
-      this.messageBox.setContent(t.comment('  No containers'));
+      this.messageBox.setContent(t.comment(`  ${emptyMessage}`));
       this.messageBox.show();
     }
   }
 
   getSelected(): ContainerInfo | null {
     return this.containers[listSelected(this.list)] ?? null;
-  }
-
-  getSelectedIndex(): number {
-    return listSelected(this.list);
   }
 
   focus(): void {

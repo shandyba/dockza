@@ -18,7 +18,8 @@ export type FooterContext =
   | 'image-detail'
   | 'network-detail'
   | 'stack-detail'
-  | 'log';
+  | 'log'
+  | 'filter';
 
 export interface FooterMessage {
   text: string;
@@ -32,6 +33,9 @@ export interface Hint {
 }
 
 export const BACK: Hint = { key: '[ ]', verb: 'back/fwd' };
+
+const FILTER: Hint = { key: '/', verb: 'filter' };
+const UNFILTER: Hint = { key: 'Esc', verb: 'unfilter' };
 
 /** Over a detail panel with no section selected. */
 const RESOURCE_DETAIL: Hint[] = [
@@ -48,6 +52,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: '↑↓', verb: 'nav' },
     { key: '↵', verb: 'select' },
     { key: '1-5', verb: 'view' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
@@ -56,7 +61,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: '↑↓', verb: 'nav' },
     { key: '↵', verb: 'detail' },
     { key: '→←', verb: 'expand' },
-    { key: '/', verb: 'filter' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
@@ -69,7 +74,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 's', verb: 'stop' },
     { key: 'r', verb: 'restart' },
     { key: 'k', verb: 'kill' },
-    { key: '/', verb: 'filter' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
   ],
@@ -79,7 +84,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 'l', verb: 'logs' },
     { key: 'S', verb: 'start' },
     { key: 'd', verb: 'remove' },
-    { key: '/', verb: 'filter' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
   ],
@@ -91,6 +96,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 's', verb: 'stop' },
     { key: 'r', verb: 'restart' },
     { key: 'k', verb: 'kill' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
   ],
@@ -100,12 +106,14 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 'l', verb: 'logs' },
     { key: 'S', verb: 'start' },
     { key: 'd', verb: 'remove' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
   ],
   'containers-empty': [
     { key: '↑↓', verb: 'nav' },
     { key: '1-5', verb: 'view' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
@@ -114,6 +122,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: '↑↓', verb: 'nav' },
     { key: '↵', verb: 'detail' },
     { key: 'd', verb: 'delete' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
@@ -122,6 +131,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: '↑↓', verb: 'nav' },
     { key: '↵', verb: 'detail' },
     { key: 'd', verb: 'delete' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
@@ -130,6 +140,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: '↑↓', verb: 'nav' },
     { key: '↵', verb: 'detail' },
     { key: 'd', verb: 'delete' },
+    FILTER,
     BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
@@ -163,7 +174,22 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 'Esc', verb: 'close' },
     BACK,
   ],
+  filter: [
+    { key: '↑↓', verb: 'nav' },
+    { key: '↵', verb: 'done' },
+    { key: 'Esc', verb: 'clear' },
+    { key: '^U', verb: 'erase' },
+  ],
 };
+
+/** A list's hints while its filter hides rows: Esc, right after `/`, clears it. */
+export function filteredHints(context: FooterContext): Hint[] {
+  const hints = HINTS[context].filter((h) => h !== FILTER);
+  const at = HINTS[context].indexOf(FILTER);
+  const back = hints.indexOf(BACK);
+  const pos = at >= 0 ? at : back >= 0 ? back : hints.length;
+  return [...hints.slice(0, pos), FILTER, UNFILTER, ...hints.slice(pos)];
+}
 
 /**
  * What the footer shows: a named context, or — while a panel section has the cursor — that

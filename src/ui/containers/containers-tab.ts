@@ -8,6 +8,9 @@ import {
 } from '@docker/containers';
 import type { ContainerInfo, ContainerStats } from '@models/docker';
 import type { Location, PanelLoc, ResourceRef } from '@models/nav';
+import { t } from '@theme';
+import { containerFilterFields, filterItems } from '@utils/filter';
+import { escapeTags } from '@utils/format';
 import { containerRef } from '@utils/nav-history';
 import { isActive } from '@utils/status';
 import { openExternalShell } from '@utils/external-terminal';
@@ -16,7 +19,8 @@ import type { RowStats } from '@ui/containers/container-list';
 import { ContainerDetail } from '@ui/containers/container-detail';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
 import { LogViewer } from '@ui/containers/log-viewer';
-import type { FooterHints } from '@ui/footer';
+import { FilterBar } from '@ui/filter-bar';
+import { filteredHints, type FooterHints } from '@ui/footer';
 import type { TabNav, ViewTab } from '@ui/view-tab';
 import type { Dims, RunMutation } from '@ui/widgets';
 
@@ -30,8 +34,11 @@ export class ContainersTab implements ViewTab {
   private containerDetail: ContainerDetail;
   private confirmDialog: ConfirmDialog;
   private logViewer: LogViewer;
+  private filterBar: FilterBar;
 
   private containers: ContainerInfo[] = [];
+  /** What the filter lets through, row for row with the list; `selectedIndex` indexes it. */
+  private shown: ContainerInfo[] = [];
   private selectedIndex = 0;
   private active = false;
   private statsCache = new Map<string, ContainerStats>();
@@ -159,11 +166,18 @@ export class ContainersTab implements ViewTab {
     this.containerDetail = new ContainerDetail(screen, dims);
     this.confirmDialog = new ConfirmDialog(screen);
     this.logViewer = new LogViewer(screen, dims);
+    this.filterBar = new FilterBar(screen, this.containerList.list);
 
     this.containerList.on('select', (container) => {
-      const idx = this.containers.findIndex((c) => c.id === container.id);
+      const idx = this.shown.findIndex((c) => c.id === container.id);
       if (idx >= 0) this.selectedIndex = idx;
     });
+
+    this.filterBar.on('change', () => {
+      this.renderList();
+      this.emitContext();
+    });
+    this.filterBar.on('state', () => this.emitContext());
 
     this.containerList.on('navigate', () => this.emitContext());
 
@@ -212,6 +226,7 @@ export class ContainersTab implements ViewTab {
   hide(): void {
     if (!this.active) return;
     this.active = false;
+    this.filterBar.stop();
     this.containerList.hide();
     this.containerDetail.hide();
     this.logViewer.hide();
@@ -236,7 +251,7 @@ export class ContainersTab implements ViewTab {
   }
 
   isInert(): boolean {
-    return this.confirmDialog.isVisible();
+    return this.confirmDialog.isVisible() || this.filterBar.isEditing();
   }
 
   getSelected(): ContainerInfo | null {
@@ -281,11 +296,16 @@ export class ContainersTab implements ViewTab {
   }
 
   footerContext(): FooterHints {
+    if (this.filterBar.isEditing()) return 'filter';
     if (this.logViewer.isVisible()) return 'log';
     if (this.containerDetail.isVisible()) return this.containerDetail.focusedHints() ?? 'detail';
     const c = this.containerList.getSelected();
-    if (!c) return 'containers-empty';
-    return isActive(c.status) ? 'containers-running' : 'containers-stopped';
+    const context = !c
+      ? 'containers-empty'
+      : isActive(c.status)
+        ? 'containers-running'
+        : 'containers-stopped';
+    return this.filterBar.isActive() ? filteredHints(context) : context;
   }
 
   cleanup(): void {
@@ -295,16 +315,7 @@ export class ContainersTab implements ViewTab {
   }
 
   refreshListStats(): void {
-    const cursorPos = this.containerList.getSelectedIndex();
-
-    const listStats = new Map<string, RowStats>();
-    for (const c of this.containers) {
-      const s = this.statsCache.get(c.id);
-      if (s) listStats.set(c.id, { cpuPercent: s.cpuPercent, memPercent: s.memPercent });
-    }
-    this.containerList.setData(this.containers, listStats);
-
-    this.containerList.list.select(Math.min(cursorPos, Math.max(0, this.containers.length - 1)));
+    this.renderList();
   }
 
   /** Re-render the current dataset (useful after terminal resize). */
@@ -313,25 +324,8 @@ export class ContainersTab implements ViewTab {
   }
 
   setData(containers: ContainerInfo[]): void {
-    const cursorId = this.containerList.getSelected()?.id ?? this.containers[this.selectedIndex]?.id;
-
     this.containers = containers;
-
-    if (cursorId) {
-      const newIdx = containers.findIndex((c) => c.id === cursorId);
-      this.selectedIndex = newIdx >= 0 ? newIdx : 0;
-    }
-    this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, containers.length - 1));
-
-    const listStats = new Map<string, RowStats>();
-    for (const c of containers) {
-      const s = this.statsCache.get(c.id);
-      if (s) listStats.set(c.id, { cpuPercent: s.cpuPercent, memPercent: s.memPercent });
-    }
-
-    const targetIdx = this.selectedIndex;
-    this.containerList.setData(containers, listStats);
-    this.containerList.list.select(targetIdx);
+    this.renderList();
 
     if (this.containerDetail.isVisible()) {
       const detailId = this.containerDetail.getContainerId();
@@ -358,7 +352,33 @@ export class ContainersTab implements ViewTab {
   }
 
   private isModalOpen(): boolean {
-    return this.confirmDialog.isVisible() || this.logViewer.isVisible();
+    return this.isInert() || this.logViewer.isVisible();
+  }
+
+  /** The rows the filter lets through, the cursor on the same container (or the top when it's gone). */
+  private renderList(): void {
+    const cursorId = this.containerList.getSelected()?.id ?? this.shown[this.selectedIndex]?.id;
+    const query = this.filterBar.query();
+    this.shown = filterItems(this.containers, query, containerFilterFields);
+
+    if (cursorId) {
+      const newIdx = this.shown.findIndex((c) => c.id === cursorId);
+      this.selectedIndex = newIdx >= 0 ? newIdx : 0;
+    }
+    this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.shown.length - 1));
+
+    const listStats = new Map<string, RowStats>();
+    for (const c of this.shown) {
+      const s = this.statsCache.get(c.id);
+      if (s) listStats.set(c.id, { cpuPercent: s.cpuPercent, memPercent: s.memPercent });
+    }
+
+    const empty =
+      this.containers.length === 0 ? 'No containers' : `No matches for ${t.fg(escapeTags(query.trim()))}`;
+    const targetIdx = this.selectedIndex;
+    this.containerList.setData(this.shown, listStats, empty);
+    this.containerList.list.select(targetIdx);
+    this.filterBar.setCount(this.shown.length, this.containers.length);
   }
 
   private openPanel(): PanelLoc | undefined {
@@ -378,8 +398,11 @@ export class ContainersTab implements ViewTab {
     return undefined;
   }
 
+  /** A row the filter hides is still where history or a link points: the filter makes way. */
   private selectRow(id: string): void {
-    const idx = this.containers.findIndex((c) => c.id === id);
+    const hidden = !this.shown.some((c) => c.id === id) && this.containers.some((c) => c.id === id);
+    if (hidden) this.filterBar.clear();
+    const idx = this.shown.findIndex((c) => c.id === id);
     if (idx < 0) return;
     this.selectedIndex = idx;
     this.containerList.list.select(idx);

@@ -1,10 +1,12 @@
 import blessed from 'neo-blessed';
 import type { Location, PanelFocus, ResourceKind, ResourceRef, ViewId } from '@models/nav';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
-import type { FooterContext, FooterHints, Hint } from '@ui/footer';
+import { FilterBar } from '@ui/filter-bar';
+import { filteredHints, type FooterContext, type FooterHints, type Hint } from '@ui/footer';
 import type { TabNav, ViewTab } from '@ui/view-tab';
 import { t } from '@theme';
-import { padEnd, truncate } from '@utils/format';
+import { filterItems, type FilterFields } from '@utils/filter';
+import { escapeTags, padEnd, truncate } from '@utils/format';
 import {
   createCenteredMessage,
   createHeaderBar,
@@ -68,6 +70,8 @@ export interface ResourceListConfig<T> {
   /** Ordered guards; the first non-null message blocks deletion and is emitted. */
   guards: Array<(item: T) => string | null>;
   columns: ResourceColumn<T>[];
+  /** The text `/` matches a row on. */
+  filterFields: (item: T) => FilterFields;
   /** ↵ opens this panel on the selected row, and links to the row's kind land in it. */
   detail?: ResourceDetailConfig<T>;
 }
@@ -75,7 +79,8 @@ export interface ResourceListConfig<T> {
 /**
  * Shared machinery for the flat "resource list" tabs (Images / Volumes / Networks):
  * a header bar over a bordered list, `d`-to-delete with a confirm dialog and guards,
- * selection preservation across polls, an optional detail panel, and the `ViewTab` contract.
+ * selection preservation across polls, `/` to filter, an optional detail panel, and the `ViewTab`
+ * contract.
  * Concrete tabs supply only their columns, guards, confirm strings, remove function and
  * detail via config.
  *
@@ -91,11 +96,14 @@ export class ResourceListTab<T> implements ViewTab {
   readonly list: blessed.Widgets.ListElement;
   private messageBox: blessed.Widgets.BoxElement;
   private confirmDialog: ConfirmDialog;
+  private filterBar: FilterBar;
   private detail: ResourceDetail<T> | null = null;
   /** Key of the item the detail shows. */
   private detailKey: string | null = null;
 
+  /** Everything App pushed; `shown` is what the filter lets through, row for row with the list. */
   private items: T[] = [];
+  private shown: T[] = [];
   private active = false;
   private updating = false;
   private contextHandlers: Handler[] = [];
@@ -172,6 +180,13 @@ export class ResourceListTab<T> implements ViewTab {
 
     this.confirmDialog = new ConfirmDialog(screen);
 
+    this.filterBar = new FilterBar(screen, this.list);
+    this.filterBar.on('change', () => {
+      this.render({ toTop: true });
+      this.emitContext();
+    });
+    this.filterBar.on('state', () => this.emitContext());
+
     if (config.detail) {
       const detail = config.detail.create(screen, dims);
       detail.on('close-request', () => this.nav.open(null));
@@ -192,11 +207,11 @@ export class ResourceListTab<T> implements ViewTab {
   }
 
   isOverlayOpen(): boolean {
-    return this.confirmDialog.isVisible() || (this.detail?.isVisible() ?? false);
+    return this.isInert() || (this.detail?.isVisible() ?? false);
   }
 
   isInert(): boolean {
-    return this.confirmDialog.isVisible();
+    return this.confirmDialog.isVisible() || this.filterBar.isEditing();
   }
 
   showLoading(): void {
@@ -218,6 +233,7 @@ export class ResourceListTab<T> implements ViewTab {
     if (!this.active) return;
     this.active = false;
     this.detail?.hide();
+    this.filterBar.stop();
     this.wrapper.hide();
     this.confirmDialog.hide();
     this.screen.removeKey('enter', this.handleEnter);
@@ -260,38 +276,14 @@ export class ResourceListTab<T> implements ViewTab {
   }
 
   footerContext(): FooterHints {
+    if (this.filterBar.isEditing()) return 'filter';
     if (this.detail?.isVisible()) return this.detail.focusedHints() ?? this.config.detail!.footer;
-    return this.config.footer;
+    return this.filterBar.isActive() ? filteredHints(this.config.footer) : this.config.footer;
   }
 
   setData(items: T[]): void {
-    this.updating = true;
-
-    const prevIdx = listSelected(this.list);
-    const prev = this.items[prevIdx];
-    const prevKey = prev ? this.config.getKey(prev) : undefined;
-
     this.items = items;
-    this.messageBox.hide();
-
-    const innerWidth = Math.max(10, (this.list.width as number) - 2);
-    const widths = this.calcWidths(innerWidth);
-
-    this.renderHeader(widths);
-
-    const rows = items.map((item) => this.buildRow(item, widths));
-    this.list.setItems(rows as unknown as blessed.Widgets.BlessedElement[]);
-
-    const foundIdx = prevKey !== undefined ? items.findIndex((it) => this.config.getKey(it) === prevKey) : -1;
-    const targetIdx = Math.min(foundIdx >= 0 ? foundIdx : prevIdx, Math.max(0, items.length - 1));
-    this.list.select(targetIdx);
-
-    this.updating = false;
-
-    if (items.length === 0) {
-      this.messageBox.setContent(t.comment(`  ${this.config.emptyMessage}`));
-      this.messageBox.show();
-    }
+    this.render({ toTop: false });
 
     if (this.detail?.isVisible()) {
       const shown = this.shownItem();
@@ -311,8 +303,53 @@ export class ResourceListTab<T> implements ViewTab {
     this.setData(this.items);
   }
 
+  /**
+   * The rows the filter lets through, keeping the selected one where it still shows. Otherwise the
+   * cursor goes to the top on a new query (`toTop`), or stays at its index when a poll removed it.
+   */
+  private render({ toTop }: { toTop: boolean }): void {
+    this.updating = true;
+
+    const prevIdx = listSelected(this.list);
+    const prev = this.shown[prevIdx];
+    const prevKey = prev ? this.config.getKey(prev) : undefined;
+
+    const query = this.filterBar.query();
+    this.shown = filterItems(this.items, query, this.config.filterFields);
+    this.messageBox.hide();
+
+    const innerWidth = Math.max(10, (this.list.width as number) - 2);
+    const widths = this.calcWidths(innerWidth);
+
+    this.renderHeader(widths);
+
+    const rows = this.shown.map((item) => this.buildRow(item, widths));
+    this.list.setItems(rows as unknown as blessed.Widgets.BlessedElement[]);
+
+    const foundIdx = prevKey !== undefined ? this.indexOf(prevKey) : -1;
+    const fallback = toTop ? 0 : prevIdx;
+    this.list.select(Math.min(foundIdx >= 0 ? foundIdx : fallback, Math.max(0, this.shown.length - 1)));
+
+    this.updating = false;
+
+    if (this.shown.length === 0) {
+      const msg =
+        this.items.length === 0
+          ? this.config.emptyMessage
+          : `No matches for ${t.fg(escapeTags(query.trim()))}`;
+      this.messageBox.setContent(t.comment(`  ${msg}`));
+      this.messageBox.show();
+    }
+
+    this.filterBar.setCount(this.shown.length, this.items.length);
+  }
+
+  private indexOf(key: string): number {
+    return this.shown.findIndex((i) => this.config.getKey(i) === key);
+  }
+
   private selected(): T | undefined {
-    return this.items[listSelected(this.list)];
+    return this.shown[listSelected(this.list)];
   }
 
   private shownItem(): T | undefined {
@@ -326,8 +363,12 @@ export class ResourceListTab<T> implements ViewTab {
     return label ? { ...ref, label } : ref;
   }
 
+  /** A row the filter hides is still where history or a link points: the filter makes way. */
   private selectKey(key: string): void {
-    const idx = this.items.findIndex((i) => this.config.getKey(i) === key);
+    if (this.indexOf(key) < 0 && this.items.some((i) => this.config.getKey(i) === key)) {
+      this.filterBar.clear();
+    }
+    const idx = this.indexOf(key);
     if (idx >= 0) this.list.select(idx);
   }
 

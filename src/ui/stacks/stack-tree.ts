@@ -1,7 +1,8 @@
 import blessed from 'neo-blessed';
 import type { ContainerInfo, ContainerStats } from '@models/docker';
 import { t } from '@theme';
-import { padEnd, truncate } from '@utils/format';
+import { containerFilterFields, matchesQuery } from '@utils/filter';
+import { escapeTags, padEnd, truncate } from '@utils/format';
 import { formatFirst } from '@utils/list-cells';
 import { shownImage } from '@utils/outdated';
 import { formatPort } from '@utils/ports';
@@ -111,6 +112,8 @@ export class StackTree {
   private expanded = new Set<string>();
   private seenStacks = new Set<string>();
   private filter = '';
+  /** Services the filter lets through (a matching stack lets all of its own through). */
+  private matched = 0;
   private updating = false;
 
   private navigateHandlers: NavigateHandler[] = [];
@@ -169,13 +172,29 @@ export class StackTree {
     this.rebuild({ preserveSelection: true });
   }
 
+  /** Narrows the tree; the selected row stays selected while it still matches, else the top one. */
   setFilter(q: string): void {
     this.filter = q;
-    this.rebuild({ preserveSelection: false });
+    this.rebuild({ preserveSelection: true });
   }
 
-  getFilter(): string {
-    return this.filter;
+  /** Services shown against all services, for the filter's `N of M`. */
+  matchCount(): { shown: number; total: number } {
+    return { shown: this.matched, total: this.stacks.reduce((n, s) => n + s.services.length, 0) };
+  }
+
+  /**
+   * Whether the filter is what keeps `key` off the tree: its row isn't shown, and with no filter it
+   * would be (a container in a collapsed stack only ever shows as its stack's header).
+   */
+  hiddenByFilter(key: string): boolean {
+    if (this.filter.trim() === '' || this.rows.some((r) => this.rowKey(r) === key)) return false;
+    if (key.startsWith('s:')) return this.stacks.some((s) => `s:${s.id}` === key);
+    const id = key.slice(2);
+    const stack = this.stacks.find((s) => s.services.some((c) => c.id === id));
+    if (!stack) return false;
+    const headerShown = this.rows.some((r) => r.kind === 'stack-header' && r.stackId === stack.id);
+    return this.expanded.has(stack.id) || !headerShown;
   }
 
   expandSelected(): void {
@@ -278,7 +297,8 @@ export class StackTree {
     this.updating = false;
 
     if (this.rows.length === 0) {
-      const msg = this.filter ? `  No matches for ${t.fg(this.filter)}` : '  No stacks';
+      const query = this.filter.trim();
+      const msg = query ? `  No matches for ${t.fg(escapeTags(query))}` : '  No stacks';
       this.messageBox.setContent(t.dim(msg));
       this.messageBox.show();
     }
@@ -288,20 +308,21 @@ export class StackTree {
 
   private flatten(): Row[] {
     const out: Row[] = [];
-    const needle = this.filter.toLowerCase();
+    const filtering = this.filter.trim() !== '';
+    this.matched = 0;
 
     for (const s of this.stacks) {
       let services = s.services;
-      const stackMatches = !needle || s.id.toLowerCase().includes(needle);
+      const stackMatches = matchesQuery(this.filter, [s.id]);
 
-      if (needle && !stackMatches) {
-        services = s.services.filter(
-          (c) => c.name.toLowerCase().includes(needle) || c.image.toLowerCase().includes(needle),
-        );
+      // A stack that matches shows as it is; one that doesn't shows only its matching services.
+      if (!stackMatches) {
+        services = s.services.filter((c) => matchesQuery(this.filter, containerFilterFields(c)));
         if (services.length === 0) continue;
       }
+      this.matched += services.length;
 
-      const expanded = this.expanded.has(s.id) || (Boolean(needle) && !stackMatches);
+      const expanded = this.expanded.has(s.id) || (filtering && !stackMatches);
       out.push({
         kind: 'stack-header',
         stackId: s.id,

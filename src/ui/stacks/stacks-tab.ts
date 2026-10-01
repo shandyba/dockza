@@ -8,7 +8,6 @@ import {
 } from '@docker/containers';
 import type { ContainerInfo, ContainerStats, NetworkInfo, VolumeInfo } from '@models/docker';
 import type { Location, PanelLoc, ResourceRef } from '@models/nav';
-import { C } from '@theme';
 import { containerRef, stackRef } from '@utils/nav-history';
 import type { Stack } from '@utils/stacks';
 import { isActive } from '@utils/status';
@@ -16,7 +15,8 @@ import { openExternalShell } from '@utils/external-terminal';
 import { ContainerDetail } from '@ui/containers/container-detail';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
 import { LogViewer } from '@ui/containers/log-viewer';
-import type { FooterHints } from '@ui/footer';
+import { FilterBar } from '@ui/filter-bar';
+import { filteredHints, type FooterContext, type FooterHints } from '@ui/footer';
 import { StackDetail, type StackResources } from '@ui/stacks/stack-detail';
 import { StackTree } from '@ui/stacks/stack-tree';
 import type { TabNav, ViewTab } from '@ui/view-tab';
@@ -29,13 +29,13 @@ export class StacksTab implements ViewTab {
   readonly view = 'stacks' as const;
   private screen: blessed.Widgets.Screen;
   private wrapper: blessed.Widgets.BoxElement;
-  private filterBox: blessed.Widgets.TextboxElement;
 
   private tree: StackTree;
   private containerDetail: ContainerDetail;
   private stackDetail: StackDetail;
   private confirmDialog: ConfirmDialog;
   private logViewer: LogViewer;
+  private filterBar: FilterBar;
 
   private containers: ContainerInfo[] = [];
   private stacks: Stack[] = [];
@@ -43,7 +43,6 @@ export class StacksTab implements ViewTab {
   private resources: StackResources = { volumes: [], networks: [] };
   private statsCache = new Map<string, ContainerStats>();
   private active = false;
-  private filterOpen = false;
 
   private contextHandlers: Handler[] = [];
   private errorHandlers: MessageHandler[] = [];
@@ -73,18 +72,7 @@ export class StacksTab implements ViewTab {
       height: '100%',
     });
 
-    // Appended after the tree so the filter input draws on top when shown.
-    this.filterBox = blessed.textbox({
-      parent: this.wrapper,
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: 1,
-      inputOnFocus: true,
-      tags: true,
-      style: { bg: C.panel, fg: C.fg },
-      hidden: true,
-    });
+    this.filterBar = new FilterBar(screen, this.tree.list);
 
     this.containerDetail = new ContainerDetail(screen, dims);
     this.stackDetail = new StackDetail(screen, dims);
@@ -113,15 +101,11 @@ export class StacksTab implements ViewTab {
     this.stackDetail.on('info', (msg) => this.infoHandlers.forEach((h) => h(msg)));
     this.stackDetail.on('error', (msg) => this.emitError(msg));
 
-    this.filterBox.on('submit', (value: string) => {
-      this.applyFilter(value ?? '');
-      this.exitFilter();
+    this.filterBar.on('change', (query) => {
+      this.tree.setFilter(query);
+      this.syncCount();
     });
-
-    this.filterBox.on('cancel', () => {
-      this.applyFilter('');
-      this.exitFilter();
-    });
+    this.filterBar.on('state', () => this.emitContext());
   }
 
   on(event: 'context', handler: Handler): void;
@@ -148,7 +132,6 @@ export class StacksTab implements ViewTab {
     this.screen.key(['S-s'], this.handleShiftS);
     this.screen.key(['d'], this.handleD);
     this.screen.key(['x'], this.handleX);
-    this.screen.key(['/'], this.handleSlash);
 
     this.emitContext();
   }
@@ -160,7 +143,7 @@ export class StacksTab implements ViewTab {
     this.stackDetail.hide();
     this.logViewer.hide();
     this.confirmDialog.hide();
-    if (this.filterOpen) this.exitFilter();
+    this.filterBar.stop();
     this.wrapper.hide();
 
     this.screen.removeKey('enter', this.handleEnter);
@@ -173,7 +156,6 @@ export class StacksTab implements ViewTab {
     this.screen.removeKey('S-s', this.handleShiftS);
     this.screen.removeKey('d', this.handleD);
     this.screen.removeKey('x', this.handleX);
-    this.screen.removeKey('/', this.handleSlash);
   }
 
   showLoading(): void {
@@ -185,7 +167,7 @@ export class StacksTab implements ViewTab {
   }
 
   isInert(): boolean {
-    return this.confirmDialog.isVisible() || this.filterOpen;
+    return this.confirmDialog.isVisible() || this.filterBar.isEditing();
   }
 
   location(): Location {
@@ -199,7 +181,7 @@ export class StacksTab implements ViewTab {
     const panel = loc.panel;
     if (panel?.ref.kind === 'stack') return this.restoreStack(panel);
     const rowKey = panel ? `c:${panel.ref.id}` : loc.selection;
-    if (rowKey !== undefined) this.tree.selectKey(rowKey);
+    if (rowKey !== undefined) this.selectKey(rowKey);
 
     const target = panel ? this.containers.find((c) => c.id === panel.ref.id) : undefined;
     if (!panel || !target) {
@@ -229,16 +211,16 @@ export class StacksTab implements ViewTab {
   }
 
   footerContext(): FooterHints {
+    if (this.filterBar.isEditing()) return 'filter';
     if (this.logViewer.isVisible()) return 'log';
     if (this.containerDetail.isVisible()) return this.containerDetail.focusedHints() ?? 'detail';
     if (this.stackDetail.isVisible()) return this.stackDetail.focusedHints() ?? 'stack-detail';
-    const sel = this.tree.getSelected();
-    if (!sel) return 'global';
-    if (sel.kind === 'stack') return 'stacks-tree-stack';
-    return isActive(sel.container.status) ? 'stacks-tree-running' : 'stacks-tree-stopped';
+    const context = this.treeContext();
+    return this.filterBar.isActive() ? filteredHints(context) : context;
   }
 
   jumpToStack(stackId: string): void {
+    if (this.tree.hiddenByFilter(`s:${stackId}`)) this.filterBar.clear();
     this.tree.jumpToStack(stackId);
   }
 
@@ -267,6 +249,7 @@ export class StacksTab implements ViewTab {
     this.containers = containers;
     this.stacks = stacks;
     this.tree.setData(this.stacks, this.statsCache);
+    this.syncCount();
 
     if (this.containerDetail.isVisible()) {
       const id = this.containerDetail.getContainerId();
@@ -305,10 +288,29 @@ export class StacksTab implements ViewTab {
 
   redraw(): void {
     this.tree.redraw();
+    this.syncCount();
   }
 
   private emitContext(): void {
     this.contextHandlers.forEach((h) => h());
+  }
+
+  private treeContext(): FooterContext {
+    const sel = this.tree.getSelected();
+    if (!sel) return 'global';
+    if (sel.kind === 'stack') return 'stacks-tree-stack';
+    return isActive(sel.container.status) ? 'stacks-tree-running' : 'stacks-tree-stopped';
+  }
+
+  private syncCount(): void {
+    const { shown, total } = this.tree.matchCount();
+    this.filterBar.setCount(shown, total);
+  }
+
+  /** A row the filter hides is still where history points: the filter makes way. */
+  private selectKey(key: string): void {
+    if (this.tree.hiddenByFilter(key)) this.filterBar.clear();
+    this.tree.selectKey(key);
   }
 
   /** The open stack detail on fresh data; gone under it, it closes (not a step the user took). */
@@ -323,7 +325,7 @@ export class StacksTab implements ViewTab {
   }
 
   private restoreStack(panel: PanelLoc): boolean {
-    this.tree.selectKey(`s:${panel.ref.id}`);
+    this.selectKey(`s:${panel.ref.id}`);
     const stack = this.stacks.find((s) => s.id === panel.ref.id);
     if (!stack) {
       this.closePanels();
@@ -378,32 +380,8 @@ export class StacksTab implements ViewTab {
   }
 
   private isModalOpen(): boolean {
-    return this.confirmDialog.isVisible() || this.logViewer.isVisible() || this.filterOpen;
+    return this.isInert() || this.logViewer.isVisible();
   }
-
-  private applyFilter(value: string): void {
-    this.tree.setFilter(value.trim());
-    this.screen.render();
-  }
-
-  private exitFilter(): void {
-    this.filterOpen = false;
-    this.filterBox.hide();
-    this.filterBox.setValue('');
-    this.tree.focus();
-    // The filter's own rebuild emitted while it was still open, which App ignores.
-    this.emitContext();
-    this.screen.render();
-  }
-
-  private readonly handleSlash = () => {
-    if (!this.active || this.isOverlayOpen()) return;
-    this.filterOpen = true;
-    this.filterBox.setValue(this.tree.getFilter());
-    this.filterBox.show();
-    this.filterBox.readInput();
-    this.screen.render();
-  };
 
   private readonly handleEnter = () => {
     if (!this.active || this.isOverlayOpen()) return;

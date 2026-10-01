@@ -52,6 +52,7 @@ function makeConfig(remove: (item: Item) => Promise<void>): ResourceListConfig<I
     confirmLabel: (item) => item.name,
     guards: [],
     columns: [{ header: 'NAME', weight: 0, render: (item) => item.name }],
+    filterFields: (item) => [item.name],
   };
 }
 

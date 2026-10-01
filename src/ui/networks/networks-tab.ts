@@ -2,6 +2,7 @@ import type blessed from 'neo-blessed';
 import { removeNetwork } from '@docker/networks';
 import type { NetworkInfo } from '@models/docker';
 import { t } from '@theme';
+import { networkFilterFields } from '@utils/filter';
 import { relativeTime, shortId, truncate } from '@utils/format';
 import { formatUsedBy } from '@utils/list-cells';
 import { NetworkDetail } from '@ui/networks/network-detail';
@@ -23,6 +24,7 @@ export class NetworksTab extends ResourceListTab<NetworkInfo> {
         emptyMessage: 'No networks',
         confirmTitle: 'Remove network?',
         confirmLabel: (net) => net.name,
+        filterFields: networkFilterFields,
         guards: [
           (net) => (net.builtin ? 'Built-in network — cannot delete' : null),
           (net) => (net.inUse ? 'Network in use — cannot delete' : null),

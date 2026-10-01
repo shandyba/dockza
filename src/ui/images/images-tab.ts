@@ -2,6 +2,7 @@ import type blessed from 'neo-blessed';
 import { removeImage } from '@docker/images';
 import type { ImageInfo } from '@models/docker';
 import { t } from '@theme';
+import { imageFilterFields } from '@utils/filter';
 import { humanSizeMB, relativeTime, shortId, truncate } from '@utils/format';
 import { formatFirst, formatUsedBy } from '@utils/list-cells';
 import { imageLabel } from '@utils/nav-history';
@@ -23,6 +24,7 @@ export class ImagesTab extends ResourceListTab<ImageInfo> {
         emptyMessage: 'No images',
         confirmTitle: 'Remove image?',
         confirmLabel: imageLabel,
+        filterFields: imageFilterFields,
         guards: [(img) => (img.inUse ? 'Image in use — cannot delete' : null)],
         detail: {
           kind: 'image',

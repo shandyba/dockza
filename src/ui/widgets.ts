@@ -33,6 +33,40 @@ export function listSelected(list: blessed.Widgets.ListElement): number {
   return typeof raw === 'number' ? raw : 0;
 }
 
+/**
+ * Moves a list's cursor for a navigation key, the way its own `keys` would (blessed's list has no
+ * paging keys of its own). For a widget holding the keyboard over the list, like the filter.
+ * False when `key` isn't a navigation key.
+ */
+export function moveListCursor(list: blessed.Widgets.ListElement, key: string): boolean {
+  const page = Math.max(1, Number(list.height) - Number(list.iheight));
+  const last = Math.max(0, (list as unknown as { items: unknown[] }).items.length - 1);
+  switch (key) {
+    case 'up':
+    case 'C-p':
+      list.up(1);
+      return true;
+    case 'down':
+    case 'C-n':
+      list.down(1);
+      return true;
+    case 'pageup':
+      list.move(-page);
+      return true;
+    case 'pagedown':
+      list.move(page);
+      return true;
+    case 'home':
+      list.select(0);
+      return true;
+    case 'end':
+      list.select(last);
+      return true;
+    default:
+      return false;
+  }
+}
+
 export function createListWidget(parent: Parent, opts: ListOptions = {}): blessed.Widgets.ListElement {
   return blessed.list({
     parent,

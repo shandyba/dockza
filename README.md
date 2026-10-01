@@ -48,9 +48,9 @@ dockza
 - **Outdated and orphaned** — an orange `↑` marks a container whose image tag now points at a newer image, and `○ orphaned` a volume or network left behind by a compose project that has no containers any more.
 - **Back / forward** — `[` and `]` walk through the screens you visited, links followed included.
 - **Streaming log viewer** with follow mode, scrollback cap, and color-coded stdout/stderr.
-- **Filter** — press `/` from Stacks to filter by stack, service, or image name.
+- **Filter as you type** — press `/` on any list and it narrows with every key, ignoring case: stacks by stack or service, containers by name, image, ID or project, images by repository, tag or ID, volumes and networks by name or driver. `↑ ↓` walk the matches while you type, `Enter` keeps the filter for the list's own keys, `Esc` clears it.
 - **Side rail navigation** — `1`–`5` or `Tab` cycles views; click a live stack to jump to it.
-- **Help overlay** — press `h` anywhere (except confirm dialogs / the stack filter) to toggle the key-binding reference.
+- **Help overlay** — press `h` anywhere (except in a confirm dialog or while typing a filter) to toggle the key-binding reference.
 - **Shell into containers** — `x` opens an external terminal `exec`'d into the selected container (macOS Terminal, Windows Terminal, common Linux emulators).
 - **Honors `DOCKER_HOST`** — works with rootless Docker, podman, and remote daemons.
 
@@ -95,6 +95,18 @@ Over SSH, or when none of those tools works, dockza falls back to an OSC 52 esca
 | `h` | Toggle help overlay |
 | `q` / `Ctrl+C` | Quit |
 
+### Filter (every list)
+
+| Key | Action |
+|-----|--------|
+| `/` | Filter the list as you type, ignoring case — the query shows in the list's bottom border with a match count |
+| `↑ ↓` / `PgUp PgDn` / `Home End` | While typing: move the cursor through the matches |
+| `Enter` | Keep the filter and go back to the list: its keys act on the matches |
+| `Esc` | Clear the filter (while typing, or on the list) |
+| `Ctrl+U` / `Ctrl+W` | Erase the whole query / its last word |
+
+Each view keeps its own filter while you switch views. A link or `[` / `]` to a row the filter hides clears it.
+
 ### Stacks
 
 | Key | Action |
@@ -102,7 +114,6 @@ Over SSH, or when none of those tools works, dockza falls back to an OSC 52 esca
 | `↑ ↓` / `j k` | Navigate tree |
 | `→` / `←` | Expand / collapse stack |
 | `Enter` | On a stack: open the stack's detail. On a service: open the container's detail |
-| `/` | Open filter (`Esc` to clear) |
 | `l` | Open log viewer |
 | `x` | Shell into selected running container |
 | `s` / `r` / `k` | Stop / restart / kill running container (confirm) |

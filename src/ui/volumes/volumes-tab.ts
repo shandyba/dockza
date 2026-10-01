@@ -2,6 +2,7 @@ import type blessed from 'neo-blessed';
 import { removeVolume } from '@docker/volumes';
 import type { VolumeInfo } from '@models/docker';
 import { t } from '@theme';
+import { volumeFilterFields } from '@utils/filter';
 import { humanSizeMB, truncate } from '@utils/format';
 import { formatUsedBy } from '@utils/list-cells';
 import { ResourceListTab } from '@ui/resource-list-tab';
@@ -22,6 +23,7 @@ export class VolumesTab extends ResourceListTab<VolumeInfo> {
         emptyMessage: 'No volumes',
         confirmTitle: 'Remove volume?',
         confirmLabel: (vol) => vol.name,
+        filterFields: volumeFilterFields,
         guards: [(vol) => (vol.inUse ? 'Volume in use — cannot delete' : null)],
         detail: {
           kind: 'volume',
