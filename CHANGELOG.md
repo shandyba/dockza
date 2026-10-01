@@ -7,6 +7,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-01
+
+### Fixed
+
+- **Keys typed while help was open acted on the view behind it** — since 0.1.0. `S`
+  started the selected container, `x` opened a shell, `d` raised a hidden "Remove
+  container?" confirm, and Esc closed the detail panel instead of the help. Help now
+  holds the keyboard until it closes.
+- **The footer fell back to list hints over an open detail panel or log viewer** — since
+  0.1.0. Every poll re-sent the list selection, replacing the panel's key hints within
+  seconds; they now stay until the panel closes.
+
+### Added
+
+- **Environment variables can be browsed and read in full.** `e` used to list them with
+  values cut at 55 characters; now `↑`/`↓` select a variable and `Enter` expands it to
+  its full value, multi-line ones included (`E` expands all).
+- **Copy environment variables to the clipboard.** `y` in the detail panel copies the
+  selected variable's name, value or `NAME=value`, or all of them. It uses the
+  platform's clipboard tool, or over SSH an OSC 52 escape to the terminal — see the
+  README's Clipboard section.
+
 ## [0.2.5] - 2026-09-11
 
 ### Fixed
@@ -182,7 +204,8 @@ First public release on npm, as `docktui`.
 
 Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
 
-[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/shandyba/dockza/releases/tag/v0.2.6
 [0.2.5]: https://github.com/shandyba/dockza/releases/tag/v0.2.5
 [0.2.4]: https://github.com/shandyba/dockza/releases/tag/v0.2.4
 [0.2.3]: https://github.com/shandyba/dockza/releases/tag/v0.2.3
