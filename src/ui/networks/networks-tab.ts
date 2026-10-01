@@ -4,14 +4,17 @@ import type { NetworkInfo } from '@models/docker';
 import { t } from '@theme';
 import { relativeTime, truncate } from '@utils/format';
 import { ResourceListTab } from '@ui/resource-list-tab';
+import type { TabNav } from '@ui/view-tab';
 import type { Dims, RunMutation } from '@ui/widgets';
 
 export class NetworksTab extends ResourceListTab<NetworkInfo> {
-  constructor(screen: blessed.Widgets.Screen, dims: Dims, runMutation: RunMutation) {
+  constructor(screen: blessed.Widgets.Screen, dims: Dims, runMutation: RunMutation, nav: TabNav) {
     super(
       screen,
       dims,
       {
+        view: 'networks',
+        footer: 'networks',
         remove: (net) => removeNetwork(net.id),
         getKey: (net) => net.id,
         emptyMessage: 'No networks',
@@ -45,6 +48,7 @@ export class NetworksTab extends ResourceListTab<NetworkInfo> {
         ],
       },
       runMutation,
+      nav,
     );
   }
 }

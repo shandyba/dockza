@@ -19,6 +19,7 @@ export class LogViewer {
   private streamGen = 0;
   private pending: Buffer = Buffer.alloc(0);
   private containerName = '';
+  private containerId: string | null = null;
 
   private closeHandlers: CloseHandler[] = [];
   private followChangeHandlers: FollowChangeHandler[] = [];
@@ -52,10 +53,9 @@ export class LogViewer {
     this.screen.render();
   };
 
+  // A request: the owner closes it, so the close goes through the router's history.
   private readonly handleClose = () => {
-    if (!this.visible) return;
-    this.hide();
-    this.closeHandlers.forEach((h) => h());
+    if (this.visible) this.closeHandlers.forEach((h) => h());
   };
 
   constructor(screen: blessed.Widgets.Screen, dims: Dims) {
@@ -100,15 +100,18 @@ export class LogViewer {
     });
   }
 
-  on(event: 'close', handler: CloseHandler): void;
+  on(event: 'close-request', handler: CloseHandler): void;
   on(event: 'follow-change', handler: FollowChangeHandler): void;
-  on(event: 'close' | 'follow-change', handler: CloseHandler | FollowChangeHandler): void {
-    if (event === 'close') this.closeHandlers.push(handler as CloseHandler);
+  on(event: 'close-request' | 'follow-change', handler: CloseHandler | FollowChangeHandler): void {
+    if (event === 'close-request') this.closeHandlers.push(handler as CloseHandler);
     if (event === 'follow-change') this.followChangeHandlers.push(handler as FollowChangeHandler);
   }
 
   show(container: ContainerInfo): void {
+    if (this.visible) this.stopStream();
+    const wasVisible = this.visible;
     this.containerName = container.name;
+    this.containerId = container.id;
     this.following = true;
 
     this.logBox.setContent('');
@@ -119,11 +122,14 @@ export class LogViewer {
     this.logBox.focus();
     this.updateHeader();
 
-    this.screen.key(['f'], this.handleF);
-    this.screen.key(['g'], this.handleG);
-    this.screen.key(['S-g'], this.handleShiftG);
-    this.screen.key(['up', 'k'], this.handleUp);
-    this.screen.key(['escape'], this.handleClose);
+    // Re-shown on another container while open: the keys are bound already, and twice fires twice.
+    if (!wasVisible) {
+      this.screen.key(['f'], this.handleF);
+      this.screen.key(['g'], this.handleG);
+      this.screen.key(['S-g'], this.handleShiftG);
+      this.screen.key(['up', 'k'], this.handleUp);
+      this.screen.key(['escape'], this.handleClose);
+    }
 
     this.screen.render();
 
@@ -160,15 +166,15 @@ export class LogViewer {
       });
   }
 
+  /**
+   * Safe to call when hidden. It must be: blessed's `removeListener` deletes a key's only listener
+   * whichever handler it is given, so a stray `removeKey('k')` here would take the tab's kill key.
+   */
   hide(): void {
+    if (!this.visible) return;
     this.visible = false;
-    this.streamGen++;
-    this.pending = Buffer.alloc(0);
-
-    if (this.activeStream) {
-      this.activeStream.destroy?.();
-      this.activeStream = null;
-    }
+    this.stopStream();
+    this.containerId = null;
 
     this.wrapper.hide();
 
@@ -184,6 +190,19 @@ export class LogViewer {
 
   isVisible(): boolean {
     return this.visible;
+  }
+
+  getContainerId(): string | null {
+    return this.containerId;
+  }
+
+  private stopStream(): void {
+    this.streamGen++;
+    this.pending = Buffer.alloc(0);
+    if (this.activeStream) {
+      this.activeStream.destroy?.();
+      this.activeStream = null;
+    }
   }
 
   private updateHeader(): void {

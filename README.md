@@ -43,7 +43,9 @@ dockza
 - **Compose-aware Stacks view** — containers grouped by project with running / errored / stopped counts, collapsible per stack.
 - **Containers / Images / Volumes** — live CPU and memory stats, start / stop / restart / kill / remove with confirm dialogs.
 - **Networks** — list Docker networks with driver, scope, attached-container count, creation time, and in-use status; remove unused networks (built-in networks and any with attached containers are protected).
-- **Detail panel** — full metadata, mounts, live CPU/MEM bars, and environment variables you can browse, expand to their full value, and copy to the clipboard.
+- **Detail panel** — full metadata, live CPU/MEM bars, mounts with the volume each one comes from, and environment variables you can browse, expand to their full value, and copy to the clipboard.
+- **Volumes ↔ containers** — the Volumes list shows which containers use each volume; a volume's detail lists them and says where the volume came from. `Enter` on a mount opens its volume, and `Enter` on a user opens that container.
+- **Back / forward** — `[` and `]` walk through the screens you visited, links followed included.
 - **Streaming log viewer** with follow mode, scrollback cap, and color-coded stdout/stderr.
 - **Filter** — press `/` from Stacks to filter by stack, service, or image name.
 - **Side rail navigation** — `1`–`5` or `Tab` cycles views; click a live stack to jump to it.
@@ -87,7 +89,8 @@ Over SSH, or when none of those tools works, dockza falls back to an OSC 52 esca
 | Key | Action |
 |-----|--------|
 | `1` – `5` | Jump to Stacks / Containers / Images / Volumes / Networks |
-| `Tab` / `Shift+Tab` | Cycle views |
+| `Tab` / `Shift+Tab` | Cycle views (in a detail panel: move between its sections) |
+| `[` / `]` | Back / forward through the screens you visited (also `Alt+←` / `Alt+→` where the terminal sends them) |
 | `h` | Toggle help overlay |
 | `q` / `Ctrl+C` | Quit |
 
@@ -115,12 +118,15 @@ Same container actions as the list/tree (`l`, `s`, `r`, `k`, `S`, `d`, `x`) plus
 
 | Key | Action |
 |-----|--------|
+| `Tab` / `Shift+Tab` | Put the cursor on the next / previous section: MOUNTS, then ENV, then none |
 | `e` | Show / hide environment variables |
 | `y` | Copy menu (below) |
 | `↑ ↓` / `PgUp PgDn` / `Home End` | Scroll |
 | `Esc` | Close |
 
-While the environment variables are shown, the arrow keys select a variable instead of scrolling:
+MOUNTS lists each mount as its type, where it comes from (a volume's name, or a bind's host path), and where it's mounted. With the cursor on it, `↑ ↓` select a mount and `Enter` on a volume opens that volume's detail in the Volumes view. ENV stays open when the cursor moves on; `e` hides it.
+
+While the cursor is on the environment variables, the arrow keys select a variable instead of scrolling:
 
 | Key | Action |
 |-----|--------|
@@ -132,15 +138,19 @@ While the environment variables are shown, the arrow keys select a variable inst
 
 ### Copy menu (`y`)
 
-| Key | Copies |
-|-----|--------|
-| `n` | Name of the selected variable |
-| `v` | Value of the selected variable |
-| `y` | `NAME=value` of the selected variable |
-| `a` | All variables, `NAME=value` one per line |
-| `Esc` | Cancel |
+It copies from the row the cursor is on, or, with no section selected, from the container or volume itself.
 
-`n`, `v` and `y` need a selected variable, so with the variables hidden only `a` is offered.
+| Where | Keys |
+|-------|------|
+| Container, nothing selected | `n` name · `i` ID · `m` image · `a` all variables |
+| A variable | `n` name · `v` value · `y` `NAME=value` · `a` all variables, `NAME=value` one per line |
+| A mount | `n` volume name · `s` source path (a bind's host path) · `d` path in the container · `y` the mount as a `docker run -v` spec · `a` all of them |
+| Volume, nothing selected | `n` name · `p` mountpoint · `a` all user names |
+| A USED BY row | `n` container name · `i` container ID · `d` path in the container · `y` `-v` spec · `a` all user names |
+
+`Esc` cancels. Options that don't apply (a bind mount has no volume name) are shown greyed out with the reason.
+
+On Docker Desktop a bind's source is reported as `/host_mnt/…`; dockza shows and copies the host path without that prefix.
 
 ### Log viewer
 
@@ -157,7 +167,10 @@ While the environment variables are shown, the arrow keys select a variable inst
 | Key | Action |
 |-----|--------|
 | `↑ ↓` / `j k` | Navigate list |
+| `Enter` | Volumes: open the volume's detail |
 | `d` | Delete unused item (confirm) |
+
+The Volumes list's USED BY column names the containers that mount each volume, running or stopped (`+N` for more). A volume's detail shows its mountpoint and where it came from (a compose project and volume key, or anonymous), and lists its users. `Tab` then `Enter` on one opens that container's detail. Docker keeps no record of the containers that used a volume before, so an unused volume shows only what its labels say.
 
 Networks additionally protect the built-in `bridge` / `host` / `none` networks and any network with attached containers — `d` on those shows a message instead of a confirm dialog. In-use detection is consistent with Images and Volumes: a network counts as in use whenever a container is attached, running or stopped.
 

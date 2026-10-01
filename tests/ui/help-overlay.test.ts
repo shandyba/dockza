@@ -80,6 +80,7 @@ describe('HelpOverlay owns the keyboard while open', () => {
         tool: 'fake',
       }),
     );
+    detail.on('close-request', () => detail.hide()); // what the owning tab does
     detail.show(container);
     help.show();
 

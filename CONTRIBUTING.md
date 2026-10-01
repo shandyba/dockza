@@ -21,21 +21,28 @@ src/
   theme.ts                Color palette (C) + tag helpers (t.purple(...), etc.).
   docker/                 Dockerode wrappers. Pure transformations live alongside.
   models/docker.ts        Shared types: ContainerInfo, ImageInfo, VolumeInfo, ...
+  models/nav.ts           Navigation types: ViewId, ResourceRef, Location (a screen to go back to).
   utils/                  Pure helpers: format, stats, status, stacks, term-caps, env-vars,
-                          viewport, clipboard (strategy selection + an injectable spawn).
+                          viewport, clipboard (strategy selection + an injectable spawn),
+                          mounts, volume-users, nav-history (back / forward).
   ui/                     neo-blessed widgets.
-    app.ts                Screen, polling loop, view routing, global keys.
+    app.ts                Screen, polling loop, global keys; wires the tabs to the router.
+    router.ts             Every navigation (views, panels, links, back / forward) and its history.
+    view-tab.ts           The ViewTab contract each view implements, and TabNav, how it navigates.
     widgets.ts            Shared factories + Dims interface.
-    resource-list-tab.ts  Shared base for the simple list views.
+    resource-list-tab.ts  Shared base for the simple list views, with an optional detail panel.
     top-bar.ts            One-row header (socket, version, counters, stats).
     footer.ts             One-row context-aware key hints + last-refresh ticker.
     side-rail.ts          28-col left rail: views + live stacks.
     help-overlay.ts       Help modal toggled with `h`.
     copy-menu.ts          `y` "Copy to clipboard" popup, shared by any view that offers copies.
+    detail/               DetailPanel (the scrollable panel every detail view lives in), the
+                          PanelSection contract, and RefSection (a section listing references).
     stacks/               Stacks view + stack tree.
-    containers/           Containers tab, detail panel (+ its ENV section), log viewer, confirm dialog.
+    containers/           Containers tab, detail panel (+ its MOUNTS and ENV sections), log viewer,
+                          confirm dialog.
     images/               Images tab.
-    volumes/              Volumes tab.
+    volumes/              Volumes tab + volume detail (+ its USED BY section).
     networks/             Networks tab.
 tests/                    Vitest tests parallel to src/. Pure logic only.
 ```
@@ -56,6 +63,10 @@ Imports use TypeScript path aliases (`@docker/*`, `@ui/*`, `@utils/*`, `@models/
 - **Key handlers** registered with `screen.key()` when a widget is shown **must** be removed with `screen.removeKey()` when it hides — otherwise they leak across views.
 - **Popups that own the keyboard** set `screen.grabKeys` while open and take keys on their own element (see `copy-menu.ts`, `help-overlay.ts`). That mutes every `screen.key` handler underneath — a tab's `k` (kill) can't fire behind the popup — without each tab having to guard against it.
 - **Two `screen.key` handlers on one key don't stack safely.** blessed's emitter walks the live listener list, so a handler that removes itself (every `hide()` does) makes the next handler for that key get skipped. That is how Esc once closed the detail panel under the help overlay and left the help up. Give overlays the keyboard instead (above).
+- **`hide()` is safe to call twice.** blessed's `removeListener` deletes a key's *only* listener whichever handler it is given, so a stray `screen.removeKey('k', …)` from a widget that isn't even open takes away the tab's `k` (kill). Every `hide()` returns early when not visible, and a tab's `show()` / `hide()` guard on whether it is active (a second `show()` would bind every key twice).
+- **Navigation goes through the router.** A tab never opens or closes a panel on the user's say-so itself: it calls the `TabNav` App injects (`nav.open(panel)`, `nav.open(null)`, `nav.follow(ref)`), and the router records the step, then calls the tab's `restore(location)`. That is what makes back / forward work for every screen, current and future. Panels emit `close-request` on Esc rather than hiding themselves. The one exception: a poll that finds a panel's subject gone closes it directly — the user didn't take that step, so it isn't one.
+- **The footer is pulled, not pushed.** A tab answers `footerContext()` from its own state and emits a bare `context` event when that may have changed; App only listens to the active tab.
+- **New detail views build on `DetailPanel`** (`src/ui/detail/`), and a list of references to other objects is a `RefSection` given a spec: a row's cells, where `Enter` takes it, what `y` copies. That keeps links looking and behaving the same everywhere — MOUNTS and USED BY are the two so far.
 - **Untrusted text** (env values, names, docker errors) goes into tagged content through `displaySafe` / `oneLine` and `escapeTags` from `src/utils/format.ts`, so it can neither inject terminal sequences nor be read as blessed tags. Measure and pad before escaping.
 - **Tabs never fetch.** `src/ui/app.ts` is the only module that imports `list*` from `@docker/*`; it owns every listing and pushes results in through `setData`. Mutations go through the `RunMutation` callback App injects into each tab, which invalidates in-flight polls (via `src/utils/refresh-gate.ts`) and refetches — otherwise a poll that straddles the mutation writes its pre-mutation snapshot back over the result. `grep -rn "listContainers\|listImages\|listVolumes\|listNetworks" src/ui` must match only `app.ts`.
 
@@ -63,14 +74,15 @@ Imports use TypeScript path aliases (`@docker/*`, `@ui/*`, `@utils/*`, `@models/
 
 Vitest, with `tests/` mirroring `src/`. We test:
 
-- Pure functions (`format`, `stats`, `status`, `stacks`, `term-caps`, `env-vars`, `viewport`).
+- Pure functions (`format`, `stats`, `status`, `stacks`, `term-caps`, `env-vars`, `viewport`, `mounts`, `volume-users`, `nav-history`).
 - `clipboard`, with the platform, environment and `spawn` injected, so every platform's strategy runs on any CI host.
-- `env-section` (the detail panel's ENV state and rendering), which is blessed-free.
-- Pure transformations from dockerode payloads (`toContainerInfo`, `toContainerStats`).
+- `env-section` and `ref-section` (the detail panel's sections), which are blessed-free.
+- The `router`, against fake tabs: history steps, snapshots, inert states, targets that have gone.
+- Pure transformations from dockerode payloads (`toContainerInfo`, `toContainerStats`, `toVolumeInfo`).
 
 We intentionally **do not** test blessed widgets (they need a real terminal) or thin try/catch shells around dockerode IO (testing them tests the mock). When you add a new pure utility, add tests next to it.
 
-The one deliberate exception is `tests/ui/resource-list-tab.test.ts`: the stale-poll regression it guards lives in the seam between a tab and App's poller, so it has to drive a real tab. It builds the screen with injected `PassThrough` streams (`isTTY`, explicit `columns`/`rows`, stubbed `setRawMode`) — under a pipe blessed reports 1×1 and layout-dependent code degenerates. Keep new widget tests to that bar: only when the behaviour cannot be reached from a pure unit. `tests/ui/container-detail.test.ts` meets it too. It covers the copy menu holding the keyboard while a tab's screen keys stay registered, and blessed's own wrapping of the panel's lines. Both share the headless screen in `tests/ui/headless.ts`, whose `press()` sends raw bytes through blessed's real key parser (`screen.emit('key …')` would bypass `grabKeys` and the parser).
+The one deliberate exception is `tests/ui/resource-list-tab.test.ts`: the stale-poll regression it guards lives in the seam between a tab and App's poller, so it has to drive a real tab. It builds the screen with injected `PassThrough` streams (`isTTY`, explicit `columns`/`rows`, stubbed `setRawMode`) — under a pipe blessed reports 1×1 and layout-dependent code degenerates. Keep new widget tests to that bar: only when the behaviour cannot be reached from a pure unit. `tests/ui/container-detail.test.ts` meets it too. It covers the copy menu holding the keyboard while a tab's screen keys stay registered, and blessed's own wrapping of the panel's lines. So do `tests/ui/containers-tab-nav.test.ts` and `tests/ui/volume-detail.test.ts`: a tab's screen-level `Enter` and its open panel's own `Enter` meet in blessed's key routing (screen first, then the focused box), and the stray-`hide()` hazard above lives in blessed's emitter. All of them share the headless screen in `tests/ui/headless.ts`, whose `press()` sends raw bytes through blessed's real key parser (`screen.emit('key …')` would bypass `grabKeys` and the parser).
 
 ```bash
 npm test               # one-shot

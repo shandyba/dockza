@@ -20,14 +20,16 @@ function shown(env: string[]): EnvSection {
   return s;
 }
 
-const rows = (s: EnvSection): string[] => s.render(COLS).lines.slice(1).map(plain);
+/** Rendered with the cursor on the section, as the detail panel does while ENV is focused. */
+const render = (s: EnvSection) => s.render(COLS, true);
+const rows = (s: EnvSection): string[] => render(s).lines.slice(1).map(plain);
 
 describe('EnvSection visibility', () => {
   it('starts hidden with a one-line header', () => {
     const s = new EnvSection();
     s.reset(['A=1', 'B=2']);
-    const r = s.render(COLS);
-    expect(r.lines.map(plain)).toEqual(['ENV (2) ▸  e show']);
+    const r = render(s);
+    expect(r.lines.map(plain)).toEqual(['ENV (2) ▸  Tab / e show']);
     expect(r.activeRange).toBeNull();
     expect(s.isNavigable()).toBe(false);
     expect(s.active()).toBeNull();
@@ -38,14 +40,14 @@ describe('EnvSection visibility', () => {
     s.reset([]);
     expect(s.toggleOpen()).toBe(false);
     expect(s.isNavigable()).toBe(false);
-    expect(s.render(COLS).lines.map(plain)).toEqual(['ENV (0)  none']);
+    expect(render(s).lines.map(plain)).toEqual(['ENV (0)  none']);
   });
 
   it('shows every variable with the first one selected', () => {
     const s = shown(['A=1', 'B=2']);
     expect(s.isNavigable()).toBe(true);
     expect(s.active()?.name).toBe('A');
-    expect(plain(s.render(COLS).lines[0])).toContain('ENV (2) ▾');
+    expect(plain(render(s).lines[0])).toContain('ENV (2) ▾');
     expect(rows(s).map((r) => r.trim())).toEqual(['A=1', 'B=2']);
   });
 });
@@ -70,7 +72,7 @@ describe('EnvSection selection', () => {
   it('highlights only the selected row, across the full width', () => {
     const s = shown(['A=1', 'B=2']);
     s.move(1);
-    const [, a, b] = s.render(COLS).lines;
+    const [, a, b] = render(s).lines;
     expect(a).not.toContain('-bg}');
     expect(b).toContain('-bg}');
     expect(plain(b)).toHaveLength(COLS);
@@ -78,9 +80,9 @@ describe('EnvSection selection', () => {
 
   it('reports the selected rows, starting at the header for the first variable', () => {
     const s = shown(['A=1', 'B=2', 'C=3']);
-    expect(s.render(COLS).activeRange).toEqual([0, 1]);
+    expect(render(s).activeRange).toEqual([0, 1]);
     s.move(2);
-    expect(s.render(COLS).activeRange).toEqual([3, 3]);
+    expect(render(s).activeRange).toEqual([3, 3]);
   });
 
   it('keeps the same variable selected when a poll reorders the list', () => {
@@ -175,7 +177,7 @@ describe('EnvSection values', () => {
   it('escapes blessed tags and neutralises control characters in names and values', () => {
     const s = shown(['TAG={bold}x{/}', 'ESC=\x1b[2J']);
     s.move(1);
-    const [tag, esc] = s.render(COLS).lines.slice(1);
+    const [tag, esc] = render(s).lines.slice(1);
     expect(tag).toContain('{open}bold{close}x{open}/{close}');
     expect(plain(tag).trim()).toBe('TAG={bold}x{/}');
     expect(esc).not.toContain('\x1b');
@@ -184,7 +186,7 @@ describe('EnvSection values', () => {
 
   it('colors name, separator and value separately on unselected rows', () => {
     const s = shown(['A=1', 'B=2']);
-    const row = s.render(COLS).lines[2];
+    const row = render(s).lines[2];
     expect(row).toMatch(/\{#f4c64a-fg\}B\{\/\}/);
     expect(row).toMatch(/\{#5a5853-fg\}=\{\/\}/);
   });
@@ -226,5 +228,54 @@ describe('EnvSection copy options', () => {
     s.move(1);
     expect(byKey(s).v).toMatchObject({ text: null, reason: '(no value)' });
     expect(byKey(s).y.text).toBe('BARE');
+  });
+});
+
+describe('EnvSection as a panel section', () => {
+  it('stays open without the cursor: rows shown, nothing highlighted', () => {
+    const s = shown(['A=1', 'B=2']);
+    const r = s.render(COLS, false);
+    expect(plain(r.lines[0])).toBe('ENV (2) ▾  Tab / e select');
+    expect(r.lines.slice(1).map((l) => plain(l).trim())).toEqual(['A=1', 'B=2']);
+    expect(r.lines.some((l) => l.includes('-bg}'))).toBe(false);
+    expect(r.activeRange).toBeNull();
+  });
+
+  it('opens when the cursor arrives; focusable only with variables', () => {
+    const s = new EnvSection();
+    s.reset(['A=1']);
+    expect(s.focusable()).toBe(true);
+    s.onFocus();
+    expect(s.isOpen()).toBe(true);
+    s.close();
+    expect(s.isOpen()).toBe(false);
+
+    s.reset([]);
+    expect(s.focusable()).toBe(false);
+    s.onFocus();
+    expect(s.isOpen()).toBe(false);
+  });
+
+  it('acts on the selected row: ↵ toggles, → / ← expand and collapse, E all', () => {
+    const s = shown([LONG_PATH, 'B=2']);
+    const collapsed = rows(s).length;
+    expect(s.onKey('enter')).toBe('changed');
+    expect(rows(s).length).toBeGreaterThan(collapsed);
+    expect(s.onKey('left')).toBe('changed');
+    expect(rows(s).length).toBe(collapsed);
+    expect(s.onKey('right')).toBe('changed');
+    expect(s.onKey('S-e')).toBe('changed');
+    expect(s.onKey('return')).toBe('ignored'); // blessed's echo of the same Enter
+    expect(s.onKey('x')).toBe('ignored');
+  });
+
+  it('names its selected row by variable, and selects it back', () => {
+    const s = shown(['A=1', 'B=2', 'C=3']);
+    s.move(2);
+    expect(s.rowKey()).toBe('C');
+    expect(s.selectRow('B')).toBe(true);
+    expect(s.active()?.name).toBe('B');
+    expect(s.selectRow('GONE')).toBe(false);
+    expect(s.active()?.name).toBe('B');
   });
 });

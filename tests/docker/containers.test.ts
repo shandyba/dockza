@@ -184,6 +184,47 @@ describe('toContainerInfo', () => {
     ]);
   });
 
+  it('keeps the volume name and driver of a volume mount', () => {
+    const info = toContainerInfo(
+      rawContainer({
+        Mounts: [
+          {
+            Type: 'volume',
+            Name: 'db-pr02_pgdata',
+            Driver: 'local',
+            Source: '/var/lib/docker/volumes/db-pr02_pgdata/_data',
+            Destination: '/var/lib/postgresql',
+            Mode: 'rw',
+            RW: true,
+          } as any,
+        ],
+      }),
+      null,
+    );
+    expect(info.mounts[0]).toMatchObject({ type: 'volume', name: 'db-pr02_pgdata', driver: 'local' });
+  });
+
+  it("prefers inspect's mounts: the list leaves an anonymous volume's Source empty", () => {
+    const listed = { Type: 'volume', Name: 'abc', Source: '', Destination: '/data', Mode: '', RW: true };
+    const inspectedMount = { ...listed, Source: '/var/lib/docker/volumes/abc/_data' };
+    const info = toContainerInfo(rawContainer({ Mounts: [listed as any] }), {
+      ...inspected({}),
+      Mounts: [inspectedMount],
+    } as any);
+    expect(info.mounts[0].source).toBe('/var/lib/docker/volumes/abc/_data');
+  });
+
+  it('sorts mounts by destination, so polls do not reshuffle them', () => {
+    const at = (d: string) => ({ Type: 'bind', Source: `/h${d}`, Destination: d, Mode: '', RW: true }) as any;
+    const info = toContainerInfo(rawContainer({ Mounts: [at('/var'), at('/app'), at('/etc')] }), null);
+    expect(info.mounts.map((m) => m.destination)).toEqual(['/app', '/etc', '/var']);
+  });
+
+  it('tolerates a null Mounts payload', () => {
+    const info = toContainerInfo(rawContainer({ Mounts: null as any }), null);
+    expect(info.mounts).toEqual([]);
+  });
+
   it('pulls env, restartPolicy, and pids from inspect when present', () => {
     const info = toContainerInfo(
       rawContainer({ State: 'running' }),

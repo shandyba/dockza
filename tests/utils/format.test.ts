@@ -13,6 +13,8 @@ import {
   oneLine,
   textWidth,
   fitWidth,
+  fitMiddle,
+  dateTime,
   wrapLine,
   type CharWidth,
 } from '@utils/format';
@@ -248,5 +250,37 @@ describe('wrapLine', () => {
     expect(pieces.join('')).toBe(value);
     expect(pieces.every((p) => p.length <= 77)).toBe(true);
     expect(pieces).toHaveLength(Math.ceil(131072 / 77));
+  });
+});
+
+describe('fitMiddle', () => {
+  it('leaves text that fits alone', () => {
+    expect(fitMiddle('/data', 10)).toEqual({ text: '/data', truncated: false });
+  });
+
+  it('keeps both ends of a long path', () => {
+    const { text, truncated } = fitMiddle('/home/me/projects/app/data', 15);
+    expect(truncated).toBe(true);
+    expect(text).toBe('/home/m…pp/data');
+    expect(text.length).toBe(15);
+  });
+
+  it('measures wide glyphs', () => {
+    const wide = (cp: number) => (cp > 0x2e80 ? 2 : 1);
+    const { text } = fitMiddle('東京東京東京', 7, wide);
+    expect(textWidth(text, wide)).toBeLessThanOrEqual(7);
+    expect(text.startsWith('東')).toBe(true);
+    expect(text.endsWith('京')).toBe(true);
+  });
+
+  it('degrades to the ellipsis alone at width 1', () => {
+    expect(fitMiddle('abcdef', 1).text).toBe('…');
+  });
+});
+
+describe('dateTime', () => {
+  it('formats to the minute, in local time', () => {
+    const d = new Date(2026, 8, 30, 8, 51, 21);
+    expect(dateTime(d)).toBe('2026-09-30 08:51');
   });
 });

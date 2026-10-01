@@ -7,6 +7,8 @@ import {
   stopContainer,
 } from '@docker/containers';
 import type { ContainerInfo, ContainerStats } from '@models/docker';
+import type { Location, PanelLoc, ResourceRef } from '@models/nav';
+import { containerRef } from '@utils/nav-history';
 import { isActive } from '@utils/status';
 import { openExternalShell } from '@utils/external-terminal';
 import { ContainerList } from '@ui/containers/container-list';
@@ -14,13 +16,15 @@ import type { RowStats } from '@ui/containers/container-list';
 import { ContainerDetail } from '@ui/containers/container-detail';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
 import { LogViewer } from '@ui/containers/log-viewer';
-
+import { containerDetailContext, type FooterContext } from '@ui/footer';
+import type { TabNav, ViewTab } from '@ui/view-tab';
 import type { Dims, RunMutation } from '@ui/widgets';
 
-type ErrorHandler = (message: string) => void;
-type ContainerSelectHandler = (container: ContainerInfo | null) => void;
+type Handler = () => void;
+type MessageHandler = (message: string) => void;
 
-export class ContainersTab {
+export class ContainersTab implements ViewTab {
+  readonly view = 'containers' as const;
   private screen: blessed.Widgets.Screen;
   private containerList: ContainerList;
   private containerDetail: ContainerDetail;
@@ -32,29 +36,20 @@ export class ContainersTab {
   private active = false;
   private statsCache = new Map<string, ContainerStats>();
 
-  private errorHandlers: ErrorHandler[] = [];
-  private containerSelectHandlers: ContainerSelectHandler[] = [];
-  private detailOpenHandlers: (() => void)[] = [];
-  private logOpenHandlers: (() => void)[] = [];
-  private logFollowChangeHandlers: ((following: boolean) => void)[] = [];
-  private detailEnvHandlers: ((active: boolean) => void)[] = [];
-  private infoHandlers: ((message: string) => void)[] = [];
+  private contextHandlers: Handler[] = [];
+  private errorHandlers: MessageHandler[] = [];
+  private infoHandlers: MessageHandler[] = [];
 
   private readonly handleEnter = () => {
     if (!this.active || this.isOverlayOpen()) return;
     const c = this.containerList.getSelected();
-    if (!c) return;
-    this.containerDetail.show(c, this.statsCache.get(c.id));
-    this.detailOpenHandlers.forEach((h) => h());
+    if (c) this.nav.open({ kind: 'detail', ref: containerRef(c) });
   };
 
   private readonly handleL = () => {
     if (!this.active || this.isModalOpen()) return;
     const c = this.getActionTarget();
-    if (!c) return;
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    this.logViewer.show(c);
-    this.logOpenHandlers.forEach((h) => h());
+    if (c) this.nav.open({ kind: 'logs', ref: containerRef(c) });
   };
 
   private confirmAndRun(title: string, message: string, danger: boolean, action: () => Promise<void>): void {
@@ -156,6 +151,7 @@ export class ContainersTab {
     screen: blessed.Widgets.Screen,
     dims: Dims,
     private readonly runMutation: RunMutation,
+    private readonly nav: TabNav,
   ) {
     this.screen = screen;
 
@@ -169,54 +165,30 @@ export class ContainersTab {
       if (idx >= 0) this.selectedIndex = idx;
     });
 
-    this.containerList.on('navigate', (container) => {
-      this.containerSelectHandlers.forEach((h) => h(container));
-    });
+    this.containerList.on('navigate', () => this.emitContext());
 
-    this.containerDetail.on('close', () => {
-      this.containerList.focus();
-      this.emitSelect();
-      this.screen.render();
-    });
-
-    this.logViewer.on('close', () => {
-      this.containerList.focus();
-      this.emitSelect();
-      this.screen.render();
-    });
-
-    this.logViewer.on('follow-change', (following) => {
-      this.logFollowChangeHandlers.forEach((h) => h(following));
-    });
-
-    this.containerDetail.on('env-mode', (active) => this.detailEnvHandlers.forEach((h) => h(active)));
+    this.containerDetail.on('close-request', () => this.nav.open(null));
+    this.containerDetail.on('goto', (ref) => this.nav.follow(ref));
+    this.containerDetail.on('section', () => this.emitContext());
     this.containerDetail.on('info', (msg) => this.infoHandlers.forEach((h) => h(msg)));
     this.containerDetail.on('error', (msg) => this.emitError(msg));
+
+    this.logViewer.on('close-request', () => this.nav.open(null));
+    this.logViewer.on('follow-change', () => this.emitContext());
 
     this.containerList.hide();
   }
 
-  on(event: 'error' | 'info', handler: ErrorHandler): void;
-  on(event: 'select', handler: ContainerSelectHandler): void;
-  on(event: 'detail-open' | 'log-open', handler: () => void): void;
-  on(event: 'log-follow-change', handler: (following: boolean) => void): void;
-  on(event: 'detail-env', handler: (active: boolean) => void): void;
-  on(
-    event: 'error' | 'info' | 'select' | 'detail-open' | 'log-open' | 'log-follow-change' | 'detail-env',
-    handler: ErrorHandler | ContainerSelectHandler | (() => void) | ((flag: boolean) => void),
-  ): void {
-    if (event === 'error') this.errorHandlers.push(handler as ErrorHandler);
-    if (event === 'info') this.infoHandlers.push(handler as ErrorHandler);
-    if (event === 'detail-env') this.detailEnvHandlers.push(handler as (active: boolean) => void);
-    if (event === 'select') this.containerSelectHandlers.push(handler as ContainerSelectHandler);
-    if (event === 'detail-open') this.detailOpenHandlers.push(handler as () => void);
-    if (event === 'log-open') this.logOpenHandlers.push(handler as () => void);
-    if (event === 'log-follow-change') {
-      this.logFollowChangeHandlers.push(handler as (following: boolean) => void);
-    }
+  on(event: 'context', handler: Handler): void;
+  on(event: 'error' | 'info', handler: MessageHandler): void;
+  on(event: 'context' | 'error' | 'info', handler: Handler | MessageHandler): void {
+    if (event === 'context') this.contextHandlers.push(handler as Handler);
+    if (event === 'error') this.errorHandlers.push(handler as MessageHandler);
+    if (event === 'info') this.infoHandlers.push(handler as MessageHandler);
   }
 
   show(): void {
+    if (this.active) return;
     this.active = true;
     this.containerList.show();
     this.containerList.focus();
@@ -230,15 +202,16 @@ export class ContainersTab {
     this.screen.key(['d'], this.handleD);
     this.screen.key(['x'], this.handleX);
 
-    this.emitSelect();
+    this.emitContext();
   }
 
   hide(): void {
+    if (!this.active) return;
     this.active = false;
     this.containerList.hide();
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    if (this.logViewer.isVisible()) this.logViewer.hide();
-    if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
+    this.containerDetail.hide();
+    this.logViewer.hide();
+    this.confirmDialog.hide();
 
     this.screen.removeKey('enter', this.handleEnter);
     this.screen.removeKey('l', this.handleL);
@@ -248,8 +221,6 @@ export class ContainersTab {
     this.screen.removeKey('S-s', this.handleShiftS);
     this.screen.removeKey('d', this.handleD);
     this.screen.removeKey('x', this.handleX);
-
-    this.containerSelectHandlers.forEach((h) => h(null));
   }
 
   showLoading(): void {
@@ -260,7 +231,7 @@ export class ContainersTab {
     return this.isModalOpen() || this.containerDetail.isVisible();
   }
 
-  isConfirmOpen(): boolean {
+  isInert(): boolean {
     return this.confirmDialog.isVisible();
   }
 
@@ -268,10 +239,56 @@ export class ContainersTab {
     return this.containerList.getSelected();
   }
 
+  location(): Location {
+    const selected = this.containerList.getSelected();
+    const loc: Location = { view: this.view, ...(selected ? { selection: selected.id } : {}) };
+    const panel = this.openPanel();
+    return panel ? { ...loc, panel } : loc;
+  }
+
+  restore(loc: Location): boolean {
+    const panel = loc.panel;
+    const rowId = panel?.ref.id ?? loc.selection;
+    if (rowId !== undefined) this.selectRow(rowId);
+
+    const target = panel ? this.containers.find((c) => c.id === panel.ref.id) : undefined;
+    if (!panel || !target) {
+      this.closePanels();
+      return !panel;
+    }
+
+    if (panel.kind === 'detail') {
+      this.logViewer.hide();
+      if (this.containerDetail.getContainerId() !== target.id || !this.containerDetail.isVisible()) {
+        this.containerDetail.show(target, this.statsCache.get(target.id));
+      }
+      this.containerDetail.setFocus(panel.focus);
+    } else {
+      this.containerDetail.hide();
+      if (this.logViewer.getContainerId() !== target.id) this.logViewer.show(target);
+    }
+    this.emitContext();
+    this.screen.render();
+    return true;
+  }
+
+  has(ref: ResourceRef): boolean {
+    return ref.kind === 'container' && this.containers.some((c) => c.id === ref.id);
+  }
+
+  footerContext(): FooterContext {
+    if (this.logViewer.isVisible()) return 'log';
+    if (this.containerDetail.isVisible())
+      return containerDetailContext(this.containerDetail.focusedSection());
+    const c = this.containerList.getSelected();
+    if (!c) return 'containers-empty';
+    return isActive(c.status) ? 'containers-running' : 'containers-stopped';
+  }
+
   cleanup(): void {
-    if (this.logViewer.isVisible()) this.logViewer.hide();
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
+    this.logViewer.hide();
+    this.containerDetail.hide();
+    this.confirmDialog.hide();
   }
 
   refreshListStats(): void {
@@ -315,18 +332,17 @@ export class ContainersTab {
 
     if (this.containerDetail.isVisible()) {
       const detailId = this.containerDetail.getContainerId();
-      if (detailId) {
-        const updated = containers.find((c) => c.id === detailId);
-        if (updated) {
-          this.containerDetail.update(updated, this.statsCache.get(detailId));
-        } else {
-          this.containerDetail.hide();
-          this.containerList.focus();
-        }
+      const updated = containers.find((c) => c.id === detailId);
+      if (updated) {
+        this.containerDetail.update(updated, this.statsCache.get(updated.id));
+      } else {
+        // Gone under the panel: close it directly. Not a step the user took, so no history entry.
+        this.containerDetail.hide();
+        this.containerList.focus();
       }
     }
 
-    this.emitSelect();
+    this.emitContext();
   }
 
   updateStats(id: string, stats: ContainerStats): void {
@@ -342,6 +358,38 @@ export class ContainersTab {
     return this.confirmDialog.isVisible() || this.logViewer.isVisible();
   }
 
+  private openPanel(): PanelLoc | undefined {
+    const byId = (id: string | null): ResourceRef | null => {
+      const c = this.containers.find((x) => x.id === id);
+      return c ? containerRef(c) : id ? { kind: 'container', id } : null;
+    };
+    if (this.containerDetail.isVisible()) {
+      const ref = byId(this.containerDetail.getContainerId());
+      const focus = this.containerDetail.getFocus();
+      if (ref) return focus ? { kind: 'detail', ref, focus } : { kind: 'detail', ref };
+    }
+    if (this.logViewer.isVisible()) {
+      const ref = byId(this.logViewer.getContainerId());
+      if (ref) return { kind: 'logs', ref };
+    }
+    return undefined;
+  }
+
+  private selectRow(id: string): void {
+    const idx = this.containers.findIndex((c) => c.id === id);
+    if (idx < 0) return;
+    this.selectedIndex = idx;
+    this.containerList.list.select(idx);
+  }
+
+  private closePanels(): void {
+    this.containerDetail.hide();
+    this.logViewer.hide();
+    this.containerList.focus();
+    this.emitContext();
+    this.screen.render();
+  }
+
   /** Container targeted by list/detail actions (detail takes precedence when open). */
   private getActionTarget(): ContainerInfo | null {
     if (this.containerDetail.isVisible()) {
@@ -351,19 +399,13 @@ export class ContainersTab {
     return this.containerList.getSelected();
   }
 
-  /**
-   * An action that leaves the detail panel (confirm, start, shell) hides it here. Re-emitting the
-   * selection puts the footer back on the list's hints now rather than at the next poll.
-   */
+  /** An action that leaves the detail panel (confirm, start, shell) closes it: a history step like Esc. */
   private closeDetailForAction(): void {
-    if (!this.containerDetail.isVisible()) return;
-    this.containerDetail.hide();
-    this.emitSelect();
+    if (this.containerDetail.isVisible()) this.nav.open(null);
   }
 
-  private emitSelect(): void {
-    const container = this.containerList.getSelected();
-    this.containerSelectHandlers.forEach((h) => h(container));
+  private emitContext(): void {
+    this.contextHandlers.forEach((h) => h());
   }
 
   private emitError(err: unknown): void {

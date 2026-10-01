@@ -84,7 +84,9 @@ export class ConfirmDialog {
     this.screen.render();
   }
 
+  /** Safe to call when hidden: a stray `removeKey('escape')` would take an open panel's Esc. */
   hide(): void {
+    if (!this.visible) return;
     this.visible = false;
     this.box.hide();
 

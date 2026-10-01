@@ -29,7 +29,6 @@ export default defineConfig({
         'src/ui/**',
         'src/docker/client.ts',
         'src/docker/images.ts',
-        'src/docker/volumes.ts',
         'src/utils/external-terminal.ts',
       ],
       thresholds: {

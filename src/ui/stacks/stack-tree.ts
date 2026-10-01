@@ -230,6 +230,30 @@ export class StackTree {
     return this.rowToSelection(this.rows[idx]);
   }
 
+  /** The selected row's key: `s:<stack id>` or `c:<container id>`. */
+  selectionKey(): string | null {
+    return this.currentSelectionKey();
+  }
+
+  /**
+   * Selects the row with `key` without expanding or collapsing anything. A container hidden in a
+   * collapsed (or filtered) stack falls back to its stack's header. False when neither is shown.
+   */
+  selectKey(key: string): boolean {
+    let idx = this.rows.findIndex((r) => this.rowKey(r) === key);
+    if (idx < 0 && key.startsWith('c:')) {
+      const id = key.slice(2);
+      const stack = this.stacks.find((s) => s.services.some((c) => c.id === id));
+      if (stack) idx = this.rows.findIndex((r) => r.kind === 'stack-header' && r.stackId === stack.id);
+    }
+    if (idx < 0) return false;
+    this.updating = true;
+    this.list.select(idx);
+    this.updating = false;
+    this.emitNavigate(idx);
+    return true;
+  }
+
   /** Re-render the current dataset (call after terminal resize). */
   redraw(): void {
     this.rebuild({ preserveSelection: true });

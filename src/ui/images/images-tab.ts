@@ -4,14 +4,17 @@ import type { ImageInfo } from '@models/docker';
 import { t } from '@theme';
 import { humanSizeMB, relativeTime, truncate } from '@utils/format';
 import { ResourceListTab } from '@ui/resource-list-tab';
+import type { TabNav } from '@ui/view-tab';
 import type { Dims, RunMutation } from '@ui/widgets';
 
 export class ImagesTab extends ResourceListTab<ImageInfo> {
-  constructor(screen: blessed.Widgets.Screen, dims: Dims, runMutation: RunMutation) {
+  constructor(screen: blessed.Widgets.Screen, dims: Dims, runMutation: RunMutation, nav: TabNav) {
     super(
       screen,
       dims,
       {
+        view: 'images',
+        footer: 'images',
         remove: (img) => removeImage(img.id),
         getKey: (img) => img.id,
         emptyMessage: 'No images',
@@ -36,6 +39,7 @@ export class ImagesTab extends ResourceListTab<ImageInfo> {
         ],
       },
       runMutation,
+      nav,
     );
   }
 }

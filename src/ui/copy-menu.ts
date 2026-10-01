@@ -19,6 +19,36 @@ export interface CopyOption {
 
 export type PickedCopyOption = CopyOption & { text: string };
 
+/** How much of a long name or path the footer repeats after a copy. */
+const SUBJECT_MAX = 40;
+
+/** A long name or path cut down for the footer's "Copied …" message. */
+export function shortSubject(s: string): string {
+  return fitWidth(oneLine(s.slice(0, SUBJECT_MAX * 4)), SUBJECT_MAX).text;
+}
+
+/**
+ * The common option: copy `text` as is, previewing it. Empty or missing text shows the option
+ * disabled with `reason`. `noun` names it in the footer: `Copied <noun> <short text>`.
+ */
+export function textOption(
+  key: string,
+  label: string,
+  text: string | null | undefined,
+  noun: string,
+  reason = '(none)',
+): CopyOption {
+  const value = text ? text : null;
+  return {
+    key,
+    label,
+    preview: value ?? '',
+    text: value,
+    reason,
+    subject: value ? `${noun} ${shortSubject(value)}` : '',
+  };
+}
+
 interface ShowOptions {
   options: CopyOption[];
   onPick: (option: PickedCopyOption) => void;

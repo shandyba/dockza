@@ -1,9 +1,8 @@
 import blessed from 'neo-blessed';
+import type { ViewId } from '@models/nav';
 import { C, t } from '@theme';
 import type { Stack } from '@utils/stacks';
 import { padEnd, truncate, visualLength } from '@utils/format';
-
-export type ViewId = 'stacks' | 'containers' | 'images' | 'volumes' | 'networks';
 
 export interface ViewCounts {
   stacks: number;

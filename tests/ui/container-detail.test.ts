@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type blessed from 'neo-blessed';
 import type { ContainerInfo } from '@models/docker';
 import { ContainerDetail } from '@ui/containers/container-detail';
+import { stripTags } from '@utils/format';
 import { KEY, makeScreen, press } from './headless';
 
 /**
@@ -53,19 +54,19 @@ describe('ContainerDetail env navigation and copy', () => {
   let detail: ContainerDetail;
   let copies: string[];
   let infos: string[];
-  let modes: boolean[];
+  let sections: Array<string | null>;
 
   beforeEach(() => {
     screen = makeScreen(100, 30);
     copies = [];
     infos = [];
-    modes = [];
+    sections = [];
     detail = new ContainerDetail(screen, { top: 0, left: 0, width: '100%', height: '100%' }, async (text) => {
       copies.push(text);
       return { ok: true, method: 'native', tool: 'fake' };
     });
     detail.on('info', (m) => infos.push(m));
-    detail.on('env-mode', (active) => modes.push(active));
+    detail.on('section', (id) => sections.push(id));
   });
 
   afterEach(() => {
@@ -111,28 +112,35 @@ describe('ContainerDetail env navigation and copy', () => {
     expect(infos).toHaveLength(4);
   });
 
-  it('with ENV hidden, only "all" can be copied', async () => {
+  it('with no section selected, y copies the container itself', async () => {
     detail.show(container(['A=1', 'B=2']));
-    press(screen, 'y');
-    press(screen, 'n'); // disabled: ignored, menu stays open
-    expect(screen.grabKeys).toBe(true);
-    press(screen, 'a');
+    for (const key of ['n', 'i', 'm', 'a']) {
+      press(screen, 'y');
+      press(screen, key);
+    }
     await settle();
-    expect(copies).toEqual(['A=1\nB=2']);
+    expect(copies).toEqual(['db-pr02', 'b5322c040ce6aaaaaaaa', 'postgres:18', 'A=1\nB=2']);
+    expect(infos[0]).toBe('Copied container name db-pr02');
   });
 
-  it('reports instead of opening an empty menu when there are no variables', () => {
+  it('with no variables, "all env" is offered but disabled', async () => {
     detail.show(container([]));
     press(screen, 'y');
-    expect(screen.grabKeys).toBe(false);
-    expect(infos).toEqual(['No environment variables to copy']);
+    expect(screen.grabKeys).toBe(true);
+    press(screen, 'a'); // disabled: ignored, menu stays open
+    expect(screen.grabKeys).toBe(true);
+    press(screen, KEY.escape);
+    await settle();
+    expect(copies).toEqual([]);
   });
 
-  it('e toggles navigation mode and tells listeners', () => {
+  it('e puts the cursor on ENV and takes it away again, telling listeners', () => {
     detail.show(container(['A=1']));
     press(screen, 'e');
+    expect(detail.focusedSection()).toBe('env');
     press(screen, 'e');
-    expect(modes).toEqual([true, false]);
+    expect(detail.focusedSection()).toBeNull();
+    expect(sections).toEqual(['env', null]);
   });
 
   it('one Enter toggles a value once (blessed emits both enter and return)', () => {
@@ -176,7 +184,7 @@ describe('ContainerDetail env navigation and copy', () => {
 
     press(screen, 'e');
     press(screen, 'y');
-    expect(modes).toEqual([]);
+    expect(sections).toEqual([]);
     expect(screen.grabKeys).toBe(false);
   });
 
@@ -202,10 +210,13 @@ describe('ContainerDetail env navigation and copy', () => {
   });
 
   it('keeps the selection on screen even when lines above it wrap', () => {
-    const longMount = { source: `/host/${'deep/'.repeat(40)}data`, destination: '/data', mode: '', rw: true };
+    // MOUNTS rows are fitted to one line, but the summary's image line wraps: lines above ENV
+    // that take more than one screen row each.
+    const image = `registry.example.com/${'deep/'.repeat(60)}image:tag`;
     const env = Array.from({ length: 60 }, (_, i) => `VAR_${i}=value-${i}`);
-    detail.show(container(env, { mounts: [longMount, longMount] }));
+    detail.show(container(env, { image }));
     press(screen, 'e');
+    expect((detail.box as any)._clines.length).toBeGreaterThan(sourceLines(detail).length);
 
     const visible = () => {
       const ftor: number[][] = (detail.box as any)._clines.ftor;
@@ -238,5 +249,123 @@ describe('ContainerDetail env navigation and copy', () => {
     detail.hide();
     detail.show(container(env));
     expect(detail.box.childBase).toBe(0);
+  });
+});
+
+describe('ContainerDetail sections: Tab, MOUNTS and following links', () => {
+  let screen: blessed.Widgets.Screen;
+  let detail: ContainerDetail;
+  let copies: string[];
+  let sections: Array<string | null>;
+  let gotos: unknown[];
+
+  const volumeMount = {
+    type: 'volume' as const,
+    name: 'db-pr02_pgdata',
+    source: '/var/lib/docker/volumes/db-pr02_pgdata/_data',
+    destination: '/var/lib/postgresql',
+    mode: 'rw',
+    rw: true,
+  };
+  const bindMount = {
+    type: 'bind' as const,
+    source: '/host_mnt/private/tmp/db-pr02/sql',
+    destination: '/sql',
+    mode: 'rw',
+    rw: true,
+  };
+  const withMounts = (env: string[] = ['A=1']) => container(env, { mounts: [bindMount, volumeMount] });
+
+  beforeEach(() => {
+    screen = makeScreen(100, 30);
+    copies = [];
+    sections = [];
+    gotos = [];
+    detail = new ContainerDetail(screen, { top: 0, left: 0, width: '100%', height: '100%' }, async (text) => {
+      copies.push(text);
+      return { ok: true, method: 'native', tool: 'fake' };
+    });
+    detail.on('section', (id) => sections.push(id));
+    detail.on('goto', (ref) => gotos.push(ref));
+  });
+
+  afterEach(() => {
+    screen.destroy();
+  });
+
+  it('Tab walks none → MOUNTS → ENV → none, and Shift+Tab walks back', () => {
+    detail.show(withMounts());
+    press(screen, '\t');
+    press(screen, '\t');
+    press(screen, '\t');
+    expect(sections).toEqual(['mounts', 'env', null]);
+    press(screen, '\x1b[Z'); // Shift+Tab
+    expect(detail.focusedSection()).toBe('env');
+    press(screen, '\x1b[Z');
+    expect(detail.focusedSection()).toBe('mounts');
+  });
+
+  it('Tab skips sections with nothing to select', () => {
+    detail.show(container([], { mounts: [volumeMount] }));
+    press(screen, '\t');
+    press(screen, '\t');
+    expect(sections).toEqual(['mounts', null]);
+  });
+
+  it('ENV stays open when the cursor moves on; e then hides it', () => {
+    detail.show(withMounts(['A=1']));
+    press(screen, 'e');
+    press(screen, '\t'); // → none
+    expect(detail.focusedSection()).toBeNull();
+    expect(stripTags(content(detail))).toContain('A=1');
+    press(screen, 'e'); // ENV is open but not focused: e selects it
+    expect(detail.focusedSection()).toBe('env');
+    press(screen, 'e');
+    expect(stripTags(content(detail))).not.toContain('A=1');
+  });
+
+  it('↵ on a bind does nothing; on a volume mount it follows, exactly once', () => {
+    detail.show(withMounts());
+    press(screen, '\t'); // MOUNTS, on the bind (/sql)
+    press(screen, KEY.enter);
+    expect(gotos).toEqual([]);
+
+    press(screen, KEY.down);
+    press(screen, KEY.enter); // blessed sends `enter`, then `return`
+    expect(gotos).toEqual([{ kind: 'volume', id: 'db-pr02_pgdata' }]);
+  });
+
+  it('copies a mount: volume name, source, destination, -v spec', async () => {
+    detail.show(withMounts());
+    press(screen, '\t');
+    press(screen, 'y');
+    press(screen, 's'); // the bind's host path
+    press(screen, KEY.down); // the volume
+    for (const key of ['n', 's', 'd', 'y']) {
+      press(screen, 'y');
+      press(screen, key);
+    }
+    await settle();
+    expect(copies).toEqual([
+      '/private/tmp/db-pr02/sql',
+      'db-pr02_pgdata',
+      '/var/lib/docker/volumes/db-pr02_pgdata/_data',
+      '/var/lib/postgresql',
+      'db-pr02_pgdata:/var/lib/postgresql',
+    ]);
+  });
+
+  it('gives its focus for history, and takes it back', () => {
+    detail.show(withMounts());
+    press(screen, '\t');
+    press(screen, KEY.down);
+    const focus = detail.getFocus();
+    expect(focus).toEqual({ section: 'mounts', row: '/var/lib/postgresql' });
+
+    detail.hide();
+    detail.show(withMounts());
+    expect(detail.focusedSection()).toBeNull();
+    detail.setFocus(focus);
+    expect(detail.getFocus()).toEqual(focus);
   });
 });

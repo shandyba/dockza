@@ -1,6 +1,6 @@
 import type Dockerode from 'dockerode';
 import { dockerode } from '@docker/client';
-import type { ContainerInfo, ContainerStats, ContainerStatus, MountInfo } from '@models/docker';
+import type { ContainerInfo, ContainerStats, ContainerStatus, MountInfo, MountType } from '@models/docker';
 import { humanUptime, relativeTime } from '@utils/format';
 import { calcCPUPercent } from '@utils/stats';
 
@@ -13,6 +13,29 @@ const VALID_STATUSES = new Set<ContainerStatus>([
   'created',
   'removing',
 ]);
+
+/** A mount from either payload: `listContainers` and `inspect` describe them the same way. */
+interface RawMount {
+  Type?: string;
+  Name?: string;
+  Driver?: string;
+  Source?: string;
+  Destination?: string;
+  Mode?: string;
+  RW?: boolean;
+}
+
+export function toMountInfo(m: RawMount): MountInfo {
+  return {
+    type: (m.Type as MountType) || 'bind',
+    ...(m.Name ? { name: m.Name } : {}),
+    ...(m.Driver ? { driver: m.Driver } : {}),
+    source: m.Source ?? '',
+    destination: m.Destination ?? '',
+    mode: m.Mode ?? '',
+    rw: m.RW ?? false,
+  };
+}
 
 export function toContainerInfo(
   raw: Dockerode.ContainerInfo,
@@ -47,13 +70,11 @@ export function toContainerInfo(
   const networks = Object.keys(rawNetworks);
   const ip = networks.length > 0 ? (rawNetworks[networks[0]]?.IPAddress ?? '') : '';
 
-  const mounts: MountInfo[] = (raw.Mounts ?? []).map((m) => ({
-    source: m.Source ?? '',
-    destination: m.Destination ?? '',
-    mode: m.Mode ?? '',
-    rw: m.RW ?? false,
-    type: (m.Type as MountInfo['type']) ?? 'bind',
-  }));
+  // Inspect's mounts first: the list payload leaves an anonymous volume's Source empty. Both come
+  // from a Go map, so their order changes between calls — sort, or the rows reshuffle every poll.
+  const mounts = (inspected?.Mounts ?? raw.Mounts ?? [])
+    .map(toMountInfo)
+    .sort((a, b) => a.destination.localeCompare(b.destination));
 
   return {
     id: raw.Id,

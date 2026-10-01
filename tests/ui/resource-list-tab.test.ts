@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type blessed from 'neo-blessed';
 import { ResourceListTab } from '@ui/resource-list-tab';
 import type { ResourceListConfig } from '@ui/resource-list-tab';
+import type { TabNav } from '@ui/view-tab';
 import type { RunMutation } from '@ui/widgets';
 import { RefreshGate } from '@utils/refresh-gate';
 import { makeScreen } from './headless';
@@ -37,8 +38,13 @@ function rowsOf(tab: ResourceListTab<Item>): string[] {
   return (tab.list as any).items.map((i: any) => String(i.getContent()).trim());
 }
 
+/** These tests never navigate: no detail is configured, so ↵ and Esc have nothing to open or close. */
+const noNav: TabNav = { open: () => {}, follow: () => {} };
+
 function makeConfig(remove: (item: Item) => Promise<void>): ResourceListConfig<Item> {
   return {
+    view: 'images',
+    footer: 'images',
     remove,
     getKey: (item) => item.id,
     emptyMessage: 'No items',
@@ -95,6 +101,7 @@ describe('ResourceListTab deletion vs. in-flight poll', () => {
         removed.push(item.id);
       }),
       runMutation,
+      noNav,
     );
     applyItems = (items) => tab.setData(items);
 
@@ -140,6 +147,7 @@ describe('ResourceListTab deletion vs. in-flight poll', () => {
         removed.push(item.id);
       }),
       runMutation,
+      noNav,
     );
 
     tab.show();

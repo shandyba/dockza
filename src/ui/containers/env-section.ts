@@ -9,25 +9,14 @@ import {
   textWidth,
   wrapLine,
 } from '@utils/format';
-import type { CopyOption } from '@ui/copy-menu';
+import { shortSubject as short, type CopyOption } from '@ui/copy-menu';
+import type { PanelSection, SectionKeyResult, SectionRender } from '@ui/detail/panel-section';
 
 /** ` ▸ ` in front of every row: space, caret, space. */
 const GUTTER = 3;
 /** Extra indent on an expanded value's continuation lines, so they read as part of the row above. */
 const HANG = 2;
-/** How much of a long name the footer repeats after a copy. */
-const SUBJECT_MAX = 40;
 const NO_SELECTION = 'select a variable first — press e';
-
-export interface EnvRender {
-  /** Header first, then one or more lines per variable (only while the section is shown). */
-  lines: string[];
-  /**
-   * Lines of the selected variable, relative to the header. Starts at the header for the first
-   * variable, so revealing it also brings the `ENV` title into view.
-   */
-  activeRange: [number, number] | null;
-}
 
 interface Piece {
   text: string;
@@ -38,14 +27,18 @@ interface Piece {
 const plural = (n: number, word: string): string =>
   `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
 const chars = (s: string): string => plural([...s].length, 'char');
-const short = (s: string): string => fitWidth(oneLine(s.slice(0, SUBJECT_MAX * 4)), SUBJECT_MAX).text;
 
 /**
  * State and rendering of the detail panel's ENV section: shown / hidden, which variable is
  * selected, and which values are expanded to full length. Renders to tagged lines; the panel
- * owns scrolling and keys. Every displayed byte goes through `displaySafe` + `escapeTags`.
+ * owns scrolling and the cursor's travel. Every displayed byte goes through `displaySafe` +
+ * `escapeTags`.
+ *
+ * Shown and focused are separate: ENV stays open when the cursor moves on (Tab), and only `e`
+ * hides it again. Values can be secrets, which is why it starts hidden.
  */
-export class EnvSection {
+export class EnvSection implements PanelSection {
+  readonly id = 'env';
   private vars: EnvVar[] = [];
   private open = false;
   private index = 0;
@@ -98,6 +91,50 @@ export class EnvSection {
     return true;
   }
 
+  close(): void {
+    this.open = false;
+  }
+
+  focusable(): boolean {
+    return this.vars.length > 0;
+  }
+
+  /** The cursor can't sit on hidden rows: arriving shows them. */
+  onFocus(): void {
+    if (this.vars.length > 0) this.open = true;
+  }
+
+  rowKey(): string | undefined {
+    return this.vars[this.index]?.name;
+  }
+
+  selectRow(name: string): boolean {
+    const found = this.vars.findIndex((v) => v.name === name);
+    if (found < 0) return false;
+    this.index = found;
+    return true;
+  }
+
+  onKey(key: string): SectionKeyResult {
+    switch (key) {
+      // `enter` only: blessed follows it with a `return` for the same key press.
+      case 'enter':
+        this.toggleValue();
+        return 'changed';
+      case 'right':
+        this.expandValue();
+        return 'changed';
+      case 'left':
+        this.collapseValue();
+        return 'changed';
+      case 'S-e':
+        this.toggleAllValues();
+        return 'changed';
+      default:
+        return 'ignored';
+    }
+  }
+
   active(): EnvVar | null {
     return this.isNavigable() ? (this.vars[this.index] ?? null) : null;
   }
@@ -146,14 +183,14 @@ export class EnvSection {
     else for (const v of this.vars) this.expanded.add(v.name);
   }
 
-  /** `cols`: the widest a line may be. Keep it below the box's inner width (see ContainerDetail). */
-  render(cols: number): EnvRender {
-    const lines = [this.header()];
+  /** `cols`: the widest a line may be. Keep it below the box's inner width (see DetailPanel). */
+  render(cols: number, focused: boolean): SectionRender {
+    const lines = [this.header(focused)];
     if (!this.isNavigable()) return { lines, activeRange: null };
 
     let activeRange: [number, number] | null = null;
     this.vars.forEach((v, i) => {
-      const active = i === this.index;
+      const active = focused && i === this.index;
       const start = lines.length;
       lines.push(...this.renderVar(v, active, cols));
       if (active) activeRange = [i === 0 ? 0 : start, lines.length - 1];
@@ -203,10 +240,11 @@ export class EnvSection {
     ];
   }
 
-  private header(): string {
+  private header(focused: boolean): string {
     const n = this.vars.length;
     if (n === 0) return `${t.comment('ENV (0)')}  ${t.faint('none')}`;
-    if (!this.open) return `${t.comment(`ENV (${n}) ▸`)}  ${t.faint('e show')}`;
+    if (!this.open) return `${t.comment(`ENV (${n}) ▸`)}  ${t.faint('Tab / e show')}`;
+    if (!focused) return `${t.comment(`ENV (${n}) ▾`)}  ${t.faint('Tab / e select')}`;
     return `${t.comment(`ENV (${n}) ▾`)}  ${t.faint('↑↓ select · ↵ value · y copy · e hide')}`;
   }
 

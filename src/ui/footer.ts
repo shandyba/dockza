@@ -15,6 +15,9 @@ export type FooterContext =
   | 'networks'
   | 'detail'
   | 'detail-env'
+  | 'detail-mounts'
+  | 'volume-detail'
+  | 'volume-detail-users'
   | 'log';
 
 export interface FooterMessage {
@@ -27,11 +30,14 @@ interface Hint {
   verb: string;
 }
 
+const BACK: Hint = { key: '[ ]', verb: 'back/fwd' };
+
 const HINTS: Record<FooterContext, Hint[]> = {
   global: [
     { key: '↑↓', verb: 'nav' },
     { key: '↵', verb: 'select' },
     { key: '1-5', verb: 'view' },
+    BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
   ],
@@ -40,6 +46,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: '→←', verb: 'expand' },
     { key: '↵', verb: 'toggle' },
     { key: '/', verb: 'filter' },
+    BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
   ],
@@ -52,6 +59,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 'r', verb: 'restart' },
     { key: 'k', verb: 'kill' },
     { key: '/', verb: 'filter' },
+    BACK,
     { key: 'h', verb: 'help' },
   ],
   'stacks-tree-stopped': [
@@ -61,6 +69,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 'S', verb: 'start' },
     { key: 'd', verb: 'remove' },
     { key: '/', verb: 'filter' },
+    BACK,
     { key: 'h', verb: 'help' },
   ],
   'containers-running': [
@@ -71,6 +80,7 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 's', verb: 'stop' },
     { key: 'r', verb: 'restart' },
     { key: 'k', verb: 'kill' },
+    BACK,
     { key: 'h', verb: 'help' },
   ],
   'containers-stopped': [
@@ -79,47 +89,80 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 'l', verb: 'logs' },
     { key: 'S', verb: 'start' },
     { key: 'd', verb: 'remove' },
+    BACK,
     { key: 'h', verb: 'help' },
   ],
   'containers-empty': [
     { key: '↑↓', verb: 'nav' },
     { key: '1-5', verb: 'view' },
+    BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
   ],
   images: [
     { key: '↑↓', verb: 'nav' },
     { key: 'd', verb: 'delete' },
+    BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
   ],
   volumes: [
     { key: '↑↓', verb: 'nav' },
+    { key: '↵', verb: 'detail' },
     { key: 'd', verb: 'delete' },
+    BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
   ],
   networks: [
     { key: '↑↓', verb: 'nav' },
     { key: 'd', verb: 'delete' },
+    BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
   ],
   detail: [
+    { key: 'Tab', verb: 'section' },
     { key: 'e', verb: 'env' },
     { key: 'y', verb: 'copy' },
     { key: 'l', verb: 'logs' },
     { key: 's/r/k', verb: 'ctrl' },
     { key: '↑↓', verb: 'scroll' },
     { key: 'Esc', verb: 'close' },
+    BACK,
   ],
   'detail-env': [
     { key: '↑↓', verb: 'select' },
     { key: '↵', verb: 'value' },
     { key: 'E', verb: 'all' },
     { key: 'y', verb: 'copy' },
+    { key: 'Tab', verb: 'next' },
     { key: 'e', verb: 'hide' },
     { key: 'Esc', verb: 'close' },
+  ],
+  'detail-mounts': [
+    { key: '↑↓', verb: 'select' },
+    { key: '↵', verb: 'open volume' },
+    { key: 'y', verb: 'copy' },
+    { key: 'Tab', verb: 'next' },
+    { key: 'Esc', verb: 'close' },
+    BACK,
+  ],
+  'volume-detail': [
+    { key: 'Tab', verb: 'section' },
+    { key: 'y', verb: 'copy' },
+    { key: 'd', verb: 'delete' },
+    { key: '↑↓', verb: 'scroll' },
+    { key: 'Esc', verb: 'close' },
+    BACK,
+  ],
+  'volume-detail-users': [
+    { key: '↑↓', verb: 'select' },
+    { key: '↵', verb: 'open container' },
+    { key: 'y', verb: 'copy' },
+    { key: 'Tab', verb: 'next' },
+    { key: 'Esc', verb: 'close' },
+    BACK,
   ],
   log: [
     { key: 'f', verb: 'follow' },
@@ -127,8 +170,16 @@ const HINTS: Record<FooterContext, Hint[]> = {
     { key: 'G', verb: 'bottom' },
     { key: '↑↓', verb: 'scroll' },
     { key: 'Esc', verb: 'close' },
+    BACK,
   ],
 };
+
+/** A container detail panel's hints, by the section holding the cursor. */
+export function containerDetailContext(section: string | null): FooterContext {
+  if (section === 'env') return 'detail-env';
+  if (section === 'mounts') return 'detail-mounts';
+  return 'detail';
+}
 
 export class Footer {
   readonly box: blessed.Widgets.BoxElement;

@@ -1,5 +1,10 @@
+import type Dockerode from 'dockerode';
 import { dockerode } from '@docker/client';
 import type { VolumeInfo } from '@models/docker';
+import { isAnonymousVolume } from '@utils/mounts';
+
+const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
+const COMPOSE_VOLUME_LABEL = 'com.docker.compose.volume';
 
 interface DfVolume {
   Name?: string;
@@ -10,17 +15,37 @@ interface DfPayload {
   Volumes?: DfVolume[];
 }
 
+/**
+ * A volume as the daemon lists it. `users` / `inUse` start empty: who mounts a volume comes from
+ * the container listing, which App owns and joins in (`withUsers`).
+ */
+export function toVolumeInfo(raw: Dockerode.VolumeInspectInfo, sizeBytes: number): VolumeInfo {
+  // Typed as always present, but the daemon sends null for a volume without labels.
+  const labels = raw.Labels ?? {};
+  const createdAt = (raw as { CreatedAt?: string }).CreatedAt;
+  const stack = labels[COMPOSE_PROJECT_LABEL];
+  const composeVolume = labels[COMPOSE_VOLUME_LABEL];
+  return {
+    name: raw.Name,
+    driver: raw.Driver,
+    mountpoint: raw.Mountpoint,
+    created: createdAt ? new Date(createdAt) : new Date(0),
+    sizeMB: sizeBytes > 0 ? sizeBytes / 1024 / 1024 : 0,
+    labels,
+    anonymous: isAnonymousVolume(raw.Name, labels),
+    ...(stack ? { stack } : {}),
+    ...(composeVolume ? { composeVolume } : {}),
+    users: [],
+    inUse: false,
+  };
+}
+
 export async function listVolumes(): Promise<VolumeInfo[]> {
   try {
-    const [volumesResponse, rawContainers, dfData] = await Promise.all([
+    const [volumesResponse, dfData] = await Promise.all([
       dockerode.listVolumes(),
-      dockerode.listContainers({ all: true }),
       dockerode.df().catch(() => ({ Volumes: [] }) as DfPayload),
     ]);
-
-    const usedVolumeNames = new Set(
-      rawContainers.flatMap((c) => c.Mounts.map((m) => m.Name ?? '').filter(Boolean)),
-    );
 
     const df = dfData as DfPayload;
     const dfSizes = new Map<string, number>(
@@ -31,18 +56,7 @@ export async function listVolumes(): Promise<VolumeInfo[]> {
 
     return (volumesResponse.Volumes ?? [])
       .sort((a, b) => a.Name.localeCompare(b.Name))
-      .map((vol) => {
-        const sizeBytes = dfSizes.get(vol.Name) ?? -1;
-        const createdAt = (vol as { CreatedAt?: string }).CreatedAt;
-        return {
-          name: vol.Name,
-          driver: vol.Driver,
-          mountpoint: vol.Mountpoint,
-          created: createdAt ? new Date(createdAt) : new Date(0),
-          sizeMB: sizeBytes > 0 ? sizeBytes / 1024 / 1024 : 0,
-          inUse: usedVolumeNames.has(vol.Name),
-        };
-      });
+      .map((vol) => toVolumeInfo(vol, dfSizes.get(vol.Name) ?? -1));
   } catch (err) {
     throw new Error(`Failed to list volumes: ${err instanceof Error ? err.message : String(err)}`);
   }

@@ -7,24 +7,25 @@ import {
   stopContainer,
 } from '@docker/containers';
 import type { ContainerInfo, ContainerStats } from '@models/docker';
+import type { Location, PanelLoc, ResourceRef } from '@models/nav';
 import { C } from '@theme';
+import { containerRef } from '@utils/nav-history';
 import type { Stack } from '@utils/stacks';
 import { isActive } from '@utils/status';
 import { openExternalShell } from '@utils/external-terminal';
 import { ContainerDetail } from '@ui/containers/container-detail';
 import { ConfirmDialog } from '@ui/containers/confirm-dialog';
 import { LogViewer } from '@ui/containers/log-viewer';
-import { StackTree, type StackTreeSelection } from '@ui/stacks/stack-tree';
+import { containerDetailContext, type FooterContext } from '@ui/footer';
+import { StackTree } from '@ui/stacks/stack-tree';
+import type { TabNav, ViewTab } from '@ui/view-tab';
 import type { Dims, RunMutation } from '@ui/widgets';
 
-type ErrorHandler = (message: string) => void;
-type NavigateHandler = (sel: StackTreeSelection) => void;
-type DetailOpenHandler = () => void;
-type LogOpenHandler = () => void;
-type LogFollowHandler = (following: boolean) => void;
-type DetailEnvHandler = (active: boolean) => void;
+type Handler = () => void;
+type MessageHandler = (message: string) => void;
 
-export class StacksTab {
+export class StacksTab implements ViewTab {
+  readonly view = 'stacks' as const;
   private screen: blessed.Widgets.Screen;
   private wrapper: blessed.Widgets.BoxElement;
   private filterBox: blessed.Widgets.TextboxElement;
@@ -40,18 +41,15 @@ export class StacksTab {
   private active = false;
   private filterOpen = false;
 
-  private errorHandlers: ErrorHandler[] = [];
-  private navigateHandlers: NavigateHandler[] = [];
-  private detailOpenHandlers: DetailOpenHandler[] = [];
-  private logOpenHandlers: LogOpenHandler[] = [];
-  private logFollowHandlers: LogFollowHandler[] = [];
-  private detailEnvHandlers: DetailEnvHandler[] = [];
-  private infoHandlers: ErrorHandler[] = [];
+  private contextHandlers: Handler[] = [];
+  private errorHandlers: MessageHandler[] = [];
+  private infoHandlers: MessageHandler[] = [];
 
   constructor(
     screen: blessed.Widgets.Screen,
     dims: Dims,
     private readonly runMutation: RunMutation,
+    private readonly nav: TabNav,
   ) {
     this.screen = screen;
 
@@ -88,25 +86,16 @@ export class StacksTab {
     this.confirmDialog = new ConfirmDialog(screen);
     this.logViewer = new LogViewer(screen, dims);
 
-    this.tree.on('navigate', (sel) => this.navigateHandlers.forEach((h) => h(sel)));
+    this.tree.on('navigate', () => this.emitContext());
 
-    // Closing re-emits the selection so the footer goes back to the tree's hints.
-    this.containerDetail.on('close', () => {
-      this.tree.focus();
-      this.emitNavigate();
-      this.screen.render();
-    });
-
-    this.logViewer.on('close', () => {
-      this.tree.focus();
-      this.emitNavigate();
-      this.screen.render();
-    });
-
-    this.logViewer.on('follow-change', (f) => this.logFollowHandlers.forEach((h) => h(f)));
-
-    this.containerDetail.on('env-mode', (active) => this.detailEnvHandlers.forEach((h) => h(active)));
+    this.containerDetail.on('close-request', () => this.nav.open(null));
+    this.containerDetail.on('goto', (ref) => this.nav.follow(ref));
+    this.containerDetail.on('section', () => this.emitContext());
     this.containerDetail.on('info', (msg) => this.infoHandlers.forEach((h) => h(msg)));
+
+    this.logViewer.on('close-request', () => this.nav.open(null));
+    this.logViewer.on('follow-change', () => this.emitContext());
+
     this.containerDetail.on('error', (msg) => this.emitError(msg));
 
     this.filterBox.on('submit', (value: string) => {
@@ -120,32 +109,16 @@ export class StacksTab {
     });
   }
 
-  on(event: 'error' | 'info', handler: ErrorHandler): void;
-  on(event: 'navigate', handler: NavigateHandler): void;
-  on(event: 'detail-open', handler: DetailOpenHandler): void;
-  on(event: 'log-open', handler: LogOpenHandler): void;
-  on(event: 'log-follow-change', handler: LogFollowHandler): void;
-  on(event: 'detail-env', handler: DetailEnvHandler): void;
-  on(
-    event: 'error' | 'info' | 'navigate' | 'detail-open' | 'log-open' | 'log-follow-change' | 'detail-env',
-    handler:
-      | ErrorHandler
-      | NavigateHandler
-      | DetailOpenHandler
-      | LogOpenHandler
-      | LogFollowHandler
-      | DetailEnvHandler,
-  ): void {
-    if (event === 'error') this.errorHandlers.push(handler as ErrorHandler);
-    else if (event === 'info') this.infoHandlers.push(handler as ErrorHandler);
-    else if (event === 'detail-env') this.detailEnvHandlers.push(handler as DetailEnvHandler);
-    else if (event === 'navigate') this.navigateHandlers.push(handler as NavigateHandler);
-    else if (event === 'detail-open') this.detailOpenHandlers.push(handler as DetailOpenHandler);
-    else if (event === 'log-open') this.logOpenHandlers.push(handler as LogOpenHandler);
-    else this.logFollowHandlers.push(handler as LogFollowHandler);
+  on(event: 'context', handler: Handler): void;
+  on(event: 'error' | 'info', handler: MessageHandler): void;
+  on(event: 'context' | 'error' | 'info', handler: Handler | MessageHandler): void {
+    if (event === 'context') this.contextHandlers.push(handler as Handler);
+    if (event === 'error') this.errorHandlers.push(handler as MessageHandler);
+    if (event === 'info') this.infoHandlers.push(handler as MessageHandler);
   }
 
   show(): void {
+    if (this.active) return;
     this.active = true;
     this.wrapper.show();
     this.tree.focus();
@@ -162,14 +135,15 @@ export class StacksTab {
     this.screen.key(['x'], this.handleX);
     this.screen.key(['/'], this.handleSlash);
 
-    this.emitNavigate();
+    this.emitContext();
   }
 
   hide(): void {
+    if (!this.active) return;
     this.active = false;
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    if (this.logViewer.isVisible()) this.logViewer.hide();
-    if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
+    this.containerDetail.hide();
+    this.logViewer.hide();
+    this.confirmDialog.hide();
     if (this.filterOpen) this.exitFilter();
     this.wrapper.hide();
 
@@ -184,8 +158,6 @@ export class StacksTab {
     this.screen.removeKey('d', this.handleD);
     this.screen.removeKey('x', this.handleX);
     this.screen.removeKey('/', this.handleSlash);
-
-    this.navigateHandlers.forEach((h) => h(null));
   }
 
   showLoading(): void {
@@ -196,16 +168,56 @@ export class StacksTab {
     return this.isModalOpen() || this.containerDetail.isVisible();
   }
 
-  isConfirmOpen(): boolean {
-    return this.confirmDialog.isVisible();
+  isInert(): boolean {
+    return this.confirmDialog.isVisible() || this.filterOpen;
   }
 
-  isFilterOpen(): boolean {
-    return this.filterOpen;
+  location(): Location {
+    const key = this.tree.selectionKey();
+    const loc: Location = { view: this.view, ...(key ? { selection: key } : {}) };
+    const panel = this.openPanel();
+    return panel ? { ...loc, panel } : loc;
   }
 
-  getSelected(): StackTreeSelection {
-    return this.tree.getSelected();
+  restore(loc: Location): boolean {
+    const panel = loc.panel;
+    const rowKey = panel ? `c:${panel.ref.id}` : loc.selection;
+    if (rowKey !== undefined) this.tree.selectKey(rowKey);
+
+    const target = panel ? this.containers.find((c) => c.id === panel.ref.id) : undefined;
+    if (!panel || !target) {
+      this.closePanels();
+      return !panel;
+    }
+
+    if (panel.kind === 'detail') {
+      this.logViewer.hide();
+      if (this.containerDetail.getContainerId() !== target.id || !this.containerDetail.isVisible()) {
+        this.containerDetail.show(target, this.statsCache.get(target.id));
+      }
+      this.containerDetail.setFocus(panel.focus);
+    } else {
+      this.containerDetail.hide();
+      if (this.logViewer.getContainerId() !== target.id) this.logViewer.show(target);
+    }
+    this.emitContext();
+    this.screen.render();
+    return true;
+  }
+
+  /** Never a link's landing place: containers open in the Containers view. */
+  has(ref: ResourceRef): boolean {
+    return ref.kind === 'container' && this.containers.some((c) => c.id === ref.id);
+  }
+
+  footerContext(): FooterContext {
+    if (this.logViewer.isVisible()) return 'log';
+    if (this.containerDetail.isVisible())
+      return containerDetailContext(this.containerDetail.focusedSection());
+    const sel = this.tree.getSelected();
+    if (!sel) return 'global';
+    if (sel.kind === 'stack') return 'stacks-tree-stack';
+    return isActive(sel.container.status) ? 'stacks-tree-running' : 'stacks-tree-stopped';
   }
 
   jumpToStack(stackId: string): void {
@@ -227,9 +239,9 @@ export class StacksTab {
   }
 
   cleanup(): void {
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    if (this.logViewer.isVisible()) this.logViewer.hide();
-    if (this.confirmDialog.isVisible()) this.confirmDialog.hide();
+    this.containerDetail.hide();
+    this.logViewer.hide();
+    this.confirmDialog.hide();
   }
 
   setData(containers: ContainerInfo[], stacks: Stack[]): void {
@@ -243,13 +255,14 @@ export class StacksTab {
         const updated = containers.find((c) => c.id === id);
         if (updated) this.containerDetail.update(updated, this.statsCache.get(id));
         else {
+          // Gone under the panel: close it directly. Not a step the user took, so no history entry.
           this.containerDetail.hide();
           this.tree.focus();
         }
       }
     }
 
-    this.emitNavigate();
+    this.emitContext();
   }
 
   updateStats(id: string, stats: ContainerStats): void {
@@ -268,8 +281,33 @@ export class StacksTab {
     this.tree.redraw();
   }
 
-  private emitNavigate(): void {
-    this.navigateHandlers.forEach((h) => h(this.tree.getSelected()));
+  private emitContext(): void {
+    this.contextHandlers.forEach((h) => h());
+  }
+
+  private openPanel(): PanelLoc | undefined {
+    const byId = (id: string | null): ResourceRef | null => {
+      const c = this.containers.find((x) => x.id === id);
+      return c ? containerRef(c) : id ? { kind: 'container', id } : null;
+    };
+    if (this.containerDetail.isVisible()) {
+      const ref = byId(this.containerDetail.getContainerId());
+      const focus = this.containerDetail.getFocus();
+      if (ref) return focus ? { kind: 'detail', ref, focus } : { kind: 'detail', ref };
+    }
+    if (this.logViewer.isVisible()) {
+      const ref = byId(this.logViewer.getContainerId());
+      if (ref) return { kind: 'logs', ref };
+    }
+    return undefined;
+  }
+
+  private closePanels(): void {
+    this.containerDetail.hide();
+    this.logViewer.hide();
+    this.tree.focus();
+    this.emitContext();
+    this.screen.render();
   }
 
   private emitError(err: unknown): void {
@@ -278,7 +316,7 @@ export class StacksTab {
   }
 
   private isModalOpen(): boolean {
-    return this.confirmDialog.isVisible() || this.logViewer.isVisible() || this.isFilterOpen();
+    return this.confirmDialog.isVisible() || this.logViewer.isVisible() || this.filterOpen;
   }
 
   private applyFilter(value: string): void {
@@ -292,7 +330,7 @@ export class StacksTab {
     this.filterBox.setValue('');
     this.tree.focus();
     // The filter's own rebuild emitted while it was still open, which App ignores.
-    this.emitNavigate();
+    this.emitContext();
     this.screen.render();
   }
 
@@ -313,8 +351,7 @@ export class StacksTab {
       this.tree.toggleExpansion();
       return;
     }
-    this.containerDetail.show(sel.container, this.statsCache.get(sel.container.id));
-    this.detailOpenHandlers.forEach((h) => h());
+    this.nav.open({ kind: 'detail', ref: containerRef(sel.container) });
   };
 
   private readonly handleLeft = () => {
@@ -332,10 +369,7 @@ export class StacksTab {
   private readonly handleL = () => {
     if (!this.active || this.isModalOpen()) return;
     const c = this.getActionTarget();
-    if (!c) return;
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
-    this.logViewer.show(c);
-    this.logOpenHandlers.forEach((h) => h());
+    if (c) this.nav.open({ kind: 'logs', ref: containerRef(c) });
   };
 
   private readonly handleX = () => {
@@ -419,14 +453,9 @@ export class StacksTab {
     return sel.container;
   }
 
-  /**
-   * An action that leaves the detail panel (confirm, start, shell) hides it here. Re-emitting the
-   * selection puts the footer back on the tree's hints now rather than at the next poll.
-   */
+  /** An action that leaves the detail panel (confirm, start, shell) closes it: a history step like Esc. */
   private closeDetailForAction(): void {
-    if (!this.containerDetail.isVisible()) return;
-    this.containerDetail.hide();
-    this.emitNavigate();
+    if (this.containerDetail.isVisible()) this.nav.open(null);
   }
 
   private confirmAndRun(title: string, message: string, danger: boolean, action: () => Promise<void>): void {

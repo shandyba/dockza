@@ -25,6 +25,11 @@ export function relativeTime(date: Date): string {
   return dayjs(date).fromNow();
 }
 
+/** `2026-09-30 08:51`, in local time. */
+export function dateTime(date: Date): string {
+  return dayjs(date).format('YYYY-MM-DD HH:mm');
+}
+
 export function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return s.slice(0, n - 1) + '…';
@@ -103,6 +108,36 @@ export function fitWidth(
     used += w;
   }
   return { text: `${text}…`, truncated: true };
+}
+
+/**
+ * `fitWidth`, cutting from the middle: `/home/me/…/app/data`. For paths, whose ends say the most.
+ */
+export function fitMiddle(
+  s: string,
+  width: number,
+  charWidth: CharWidth = unitWidth,
+): { text: string; truncated: boolean } {
+  const max = Math.max(1, Math.floor(width));
+  if (textWidth(s, charWidth) <= max) return { text: s, truncated: false };
+  const cps = [...s];
+  const w = (ch: string): number => Math.max(0, charWidth(ch.codePointAt(0) ?? 0));
+  let budget = max - 1;
+  let headBudget = Math.ceil(budget / 2);
+  let head = '';
+  let i = 0;
+  while (i < cps.length && w(cps[i]) <= headBudget) {
+    head += cps[i];
+    headBudget -= w(cps[i]);
+    budget -= w(cps[i]);
+    i++;
+  }
+  let tail = '';
+  for (let j = cps.length - 1; j >= i && w(cps[j]) <= budget; j--) {
+    tail = cps[j] + tail;
+    budget -= w(cps[j]);
+  }
+  return { text: `${head}…${tail}`, truncated: true };
 }
 
 /**

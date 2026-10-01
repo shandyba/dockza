@@ -4,18 +4,21 @@ import { listContainers, fetchStats } from '@docker/containers';
 import { listImages } from '@docker/images';
 import { listVolumes } from '@docker/volumes';
 import { listNetworks } from '@docker/networks';
-import type { ContainerInfo } from '@models/docker';
+import type { ContainerInfo, VolumeInfo } from '@models/docker';
+import type { ResourceRef, ViewId } from '@models/nav';
+import { describeRef, viewForRef } from '@utils/nav-history';
 import { groupIntoStacks, type Stack } from '@utils/stacks';
+import { withUsers } from '@utils/volume-users';
 import { isActive } from '@utils/status';
 import { RefreshGate } from '@utils/refresh-gate';
 import { TopBar } from '@ui/top-bar';
 import { Footer } from '@ui/footer';
-import type { FooterContext } from '@ui/footer';
-import { SideRail, RAIL_WIDTH, type ViewId } from '@ui/side-rail';
+import { SideRail, RAIL_WIDTH } from '@ui/side-rail';
 import type { RunMutation } from '@ui/widgets';
 import { HelpOverlay } from '@ui/help-overlay';
+import { Router } from '@ui/router';
+import type { TabNav, ViewTab } from '@ui/view-tab';
 import { StacksTab } from '@ui/stacks/stacks-tab';
-import type { StackTreeSelection } from '@ui/stacks/stack-tree';
 import { ContainersTab } from '@ui/containers/containers-tab';
 import { ImagesTab } from '@ui/images/images-tab';
 import { VolumesTab } from '@ui/volumes/volumes-tab';
@@ -37,14 +40,16 @@ export class App {
   private imagesTab: ImagesTab;
   private volumesTab: VolumesTab;
   private networksTab: NetworksTab;
+  private readonly tabs: Record<ViewId, ViewTab>;
+  private readonly router: Router;
 
-  private activeView: ViewId = 'stacks';
   private overlayOpen = false;
 
   private containers: ContainerInfo[] = [];
   private stacks: Stack[] = [];
   private imageCount = 0;
-  private volumeCount = 0;
+  /** Null until the first fetch lands, so the tab keeps "Loading…" rather than flashing "No volumes". */
+  private volumes: VolumeInfo[] | null = null;
   private networkCount = 0;
   private aggregateStats: { cpuPercent: number; memUsageMB: number } | null = null;
 
@@ -83,11 +88,46 @@ export class App {
     this.helpOverlay = new HelpOverlay(this.screen);
 
     const onContainers = this.mutationRunner(this.containersGate);
-    this.stacksTab = new StacksTab(this.screen, tabDims, onContainers);
-    this.containersTab = new ContainersTab(this.screen, tabDims, onContainers);
-    this.imagesTab = new ImagesTab(this.screen, tabDims, this.mutationRunner(this.imagesGate));
-    this.volumesTab = new VolumesTab(this.screen, tabDims, this.mutationRunner(this.volumesGate));
-    this.networksTab = new NetworksTab(this.screen, tabDims, this.mutationRunner(this.networksGate));
+    this.stacksTab = new StacksTab(this.screen, tabDims, onContainers, this.navFor('stacks'));
+    this.containersTab = new ContainersTab(this.screen, tabDims, onContainers, this.navFor('containers'));
+    this.imagesTab = new ImagesTab(
+      this.screen,
+      tabDims,
+      this.mutationRunner(this.imagesGate),
+      this.navFor('images'),
+    );
+    this.volumesTab = new VolumesTab(
+      this.screen,
+      tabDims,
+      this.mutationRunner(this.volumesGate),
+      this.navFor('volumes'),
+    );
+    this.networksTab = new NetworksTab(
+      this.screen,
+      tabDims,
+      this.mutationRunner(this.networksGate),
+      this.navFor('networks'),
+    );
+    this.tabs = {
+      stacks: this.stacksTab,
+      containers: this.containersTab,
+      images: this.imagesTab,
+      volumes: this.volumesTab,
+      networks: this.networksTab,
+    };
+    this.router = new Router(
+      this.tabs,
+      {
+        isInert: () => this.overlayOpen || this.router.activeTab().isInert(),
+        onNavigated: (view) => {
+          this.rail.setActiveView(view);
+          this.syncFooter();
+          this.render();
+        },
+        onMissing: (ref, reason) => this.reportMissing(ref, reason),
+      },
+      'stacks',
+    );
 
     this.wireEvents();
     this.setupKeys();
@@ -100,6 +140,14 @@ export class App {
     process.once('SIGHUP', externalShutdown);
   }
 
+  /** A tab's way to navigate: late-bound, because the router needs the tabs first. */
+  private navFor(view: ViewId): TabNav {
+    return {
+      open: (panel) => this.router.open(view, panel),
+      follow: (ref) => this.router.follow(ref),
+    };
+  }
+
   private wireEvents(): void {
     this.helpOverlay.on('hide', () => {
       this.overlayOpen = false;
@@ -108,105 +156,42 @@ export class App {
 
     this.rail.on('view-change', (id) => {
       if (!this.canSwitchView()) return;
-      this.showView(id);
+      this.router.switchTo(id);
     });
 
     this.rail.on('stack-jump', (stackId) => {
       if (!this.canSwitchView()) return;
-      this.showView('stacks');
+      if (!this.router.switchTo('stacks')) return;
       this.stacksTab.jumpToStack(stackId);
       this.render();
     });
 
-    // Polls re-emit the selection every few seconds; while the detail panel, log viewer, a confirm
-    // or the filter is up, the footer belongs to that overlay and must not snap back to list hints.
-    this.stacksTab.on('error', (msg) => this.setFooterMessage(msg, 'red'));
-    this.stacksTab.on('info', (msg) => this.setFooterMessage(msg, 'green'));
-    this.stacksTab.on('navigate', (sel) => {
-      if (this.activeView !== 'stacks' || this.stacksTab.isOverlayOpen()) return;
-      this.footer.setContext(this.contextForStacks(sel));
-      this.render();
-    });
-    this.stacksTab.on('detail-env', (active) => {
-      if (this.activeView === 'stacks') {
-        this.footer.setContext(active ? 'detail-env' : 'detail');
+    // Polls re-emit `context` every few seconds; only the active view's hints reach the footer, and
+    // they come from the tab's own state, so an open panel or log viewer keeps its hints.
+    for (const tab of Object.values(this.tabs)) {
+      tab.on('context', () => {
+        if (tab.view !== this.router.activeView()) return;
+        this.syncFooter();
         this.render();
-      }
-    });
-    this.stacksTab.on('detail-open', () => {
-      if (this.activeView === 'stacks') {
-        this.footer.setContext('detail');
-        this.render();
-      }
-    });
-    this.stacksTab.on('log-open', () => {
-      if (this.activeView === 'stacks') {
-        this.footer.setContext('log');
-        this.render();
-      }
-    });
-    this.stacksTab.on('log-follow-change', () => {
-      if (this.activeView === 'stacks') {
-        this.footer.setContext('log');
-        this.render();
-      }
-    });
+      });
+      tab.on('error', (msg) => this.setFooterMessage(msg, 'red'));
+      tab.on('info', (msg) => this.setFooterMessage(msg, 'green'));
+    }
+  }
 
-    this.containersTab.on('error', (msg) => this.setFooterMessage(msg, 'red'));
-    this.containersTab.on('info', (msg) => this.setFooterMessage(msg, 'green'));
-    this.containersTab.on('select', (c) => {
-      if (this.activeView !== 'containers' || this.containersTab.isOverlayOpen()) return;
-      this.footer.setContext(this.contextForContainer(c));
-      this.render();
-    });
-    this.containersTab.on('detail-env', (active) => {
-      if (this.activeView === 'containers') {
-        this.footer.setContext(active ? 'detail-env' : 'detail');
-        this.render();
-      }
-    });
-    this.containersTab.on('detail-open', () => {
-      if (this.activeView === 'containers') {
-        this.footer.setContext('detail');
-        this.render();
-      }
-    });
-    this.containersTab.on('log-open', () => {
-      if (this.activeView === 'containers') {
-        this.footer.setContext('log');
-        this.render();
-      }
-    });
-    this.containersTab.on('log-follow-change', () => {
-      if (this.activeView === 'containers') {
-        this.footer.setContext('log');
-        this.render();
-      }
-    });
+  private syncFooter(): void {
+    this.footer.setContext(this.router.activeTab().footerContext());
+  }
 
-    this.imagesTab.on('error', (msg) => this.setFooterMessage(msg, 'red'));
-    this.imagesTab.on('navigate', () => {
-      if (this.activeView === 'images') {
-        this.footer.setContext('images');
-        this.render();
-      }
-    });
-
-    this.volumesTab.on('error', (msg) => this.setFooterMessage(msg, 'red'));
-    this.volumesTab.on('navigate', () => {
-      if (this.activeView === 'volumes') {
-        this.footer.setContext('volumes');
-        this.render();
-      }
-    });
-
-    this.networksTab.on('error', (msg) => this.setFooterMessage(msg, 'red'));
-    this.networksTab.on('navigate', () => {
-      if (this.activeView === 'networks') {
-        this.footer.setContext('networks');
-        this.render();
-      }
-    });
+  /** A link or a history step pointed at something that isn't there (yet). */
+  private reportMissing(ref: ResourceRef, reason: 'gone' | 'unlisted'): void {
+    if (reason === 'gone') {
+      this.setFooterMessage(`${describeRef(ref)} no longer exists`, 'red');
+      return;
+    }
+    this.setFooterMessage(`${describeRef(ref)} isn't listed yet — refreshing`, 'normal');
+    const gate = viewForRef(ref) === 'volumes' ? this.volumesGate : this.containersGate;
+    void gate.poll();
   }
 
   /**
@@ -225,17 +210,6 @@ export class App {
     };
   }
 
-  private contextForStacks(sel: StackTreeSelection): FooterContext {
-    if (!sel) return 'global';
-    if (sel.kind === 'stack') return 'stacks-tree-stack';
-    return isActive(sel.container.status) ? 'stacks-tree-running' : 'stacks-tree-stopped';
-  }
-
-  private contextForContainer(c: ContainerInfo | null): FooterContext {
-    if (!c) return 'containers-empty';
-    return isActive(c.status) ? 'containers-running' : 'containers-stopped';
-  }
-
   /** Opens help. Closing is the overlay's own job: it holds the keyboard while it is up. */
   private readonly openHelp = (): void => {
     if (this.overlayOpen || this.isHelpBlocked()) return;
@@ -244,25 +218,22 @@ export class App {
   };
 
   private setupKeys(): void {
-    this.screen.key('tab', () => {
-      if (!this.canSwitchView()) return;
-      const idx = (VIEW_ORDER.indexOf(this.activeView) + 1) % VIEW_ORDER.length;
-      this.showView(VIEW_ORDER[idx]);
-    });
-
-    this.screen.key('S-tab', () => {
-      if (!this.canSwitchView()) return;
-      const idx = (VIEW_ORDER.indexOf(this.activeView) + VIEW_ORDER.length - 1) % VIEW_ORDER.length;
-      this.showView(VIEW_ORDER[idx]);
-    });
+    // Inside a panel Tab moves between its sections: that's the panel's own key, so stay out.
+    this.screen.key('tab', () => this.cycleView(1));
+    this.screen.key('S-tab', () => this.cycleView(-1));
 
     for (let i = 0; i < VIEW_ORDER.length; i++) {
       const view = VIEW_ORDER[i];
       this.screen.key(String(i + 1), () => {
         if (!this.canSwitchView()) return;
-        this.showView(view);
+        this.router.switchTo(view);
       });
     }
+
+    // History works from panels too (that's how you get back from a followed link); the router
+    // ignores it while help, a confirm or the filter is up.
+    this.screen.key(['[', 'M-left'], () => this.router.back());
+    this.screen.key([']', 'M-right'], () => this.router.forward());
 
     this.screen.key(['h'], this.openHelp);
 
@@ -272,101 +243,23 @@ export class App {
     });
   }
 
+  private cycleView(dir: 1 | -1): void {
+    if (!this.canSwitchView()) return;
+    const at = VIEW_ORDER.indexOf(this.router.activeView());
+    this.router.switchTo(VIEW_ORDER[(at + dir + VIEW_ORDER.length) % VIEW_ORDER.length]);
+  }
+
   private canSwitchView(): boolean {
     return !this.overlayOpen && !this.isModalOpen();
   }
 
+  /** Only the active view can have anything open: hidden tabs close their panels. */
   private isModalOpen(): boolean {
-    return (
-      this.stacksTab.isOverlayOpen() ||
-      this.containersTab.isOverlayOpen() ||
-      this.imagesTab.isConfirmOpen() ||
-      this.volumesTab.isConfirmOpen() ||
-      this.networksTab.isConfirmOpen() ||
-      this.isFilterOpen()
-    );
-  }
-
-  private isFilterOpen(): boolean {
-    return this.stacksTab.isFilterOpen();
+    return this.router.activeTab().isOverlayOpen();
   }
 
   private isHelpBlocked(): boolean {
-    return (
-      this.stacksTab.isConfirmOpen() ||
-      this.containersTab.isConfirmOpen() ||
-      this.imagesTab.isConfirmOpen() ||
-      this.volumesTab.isConfirmOpen() ||
-      this.networksTab.isConfirmOpen() ||
-      this.isFilterOpen()
-    );
-  }
-
-  private showView(id: ViewId): void {
-    if (this.activeView === id) return;
-
-    this.hideTab(this.activeView);
-    this.activeView = id;
-    this.showTab(id);
-
-    this.rail.setActiveView(id);
-    this.footer.setContext(this.defaultContextFor(id));
-    this.render();
-  }
-
-  private hideTab(id: ViewId): void {
-    switch (id) {
-      case 'stacks':
-        this.stacksTab.hide();
-        break;
-      case 'containers':
-        this.containersTab.hide();
-        break;
-      case 'images':
-        this.imagesTab.hide();
-        break;
-      case 'volumes':
-        this.volumesTab.hide();
-        break;
-      case 'networks':
-        this.networksTab.hide();
-        break;
-    }
-  }
-
-  private showTab(id: ViewId): void {
-    switch (id) {
-      case 'stacks':
-        this.stacksTab.show();
-        break;
-      case 'containers':
-        this.containersTab.show();
-        break;
-      case 'images':
-        this.imagesTab.show();
-        break;
-      case 'volumes':
-        this.volumesTab.show();
-        break;
-      case 'networks':
-        this.networksTab.show();
-        break;
-    }
-  }
-
-  private defaultContextFor(id: ViewId): FooterContext {
-    switch (id) {
-      case 'stacks':
-        return this.contextForStacks(this.stacksTab.getSelected());
-      case 'containers':
-        return this.contextForContainer(this.containersTab.getSelected());
-      case 'images':
-        return 'images';
-      case 'volumes':
-        return 'volumes';
-      case 'networks':
-        return 'networks';
-    }
+    return this.router.activeTab().isInert();
   }
 
   private render(): void {
@@ -398,13 +291,9 @@ export class App {
     this.footer.setContext('global');
     this.footer.startTicker(() => this.render());
 
-    this.stacksTab.showLoading();
-    this.containersTab.showLoading();
-    this.imagesTab.showLoading();
-    this.volumesTab.showLoading();
-    this.networksTab.showLoading();
+    for (const tab of Object.values(this.tabs)) tab.showLoading();
 
-    this.showTab('stacks');
+    this.router.start();
     this.render();
 
     await this.containersGate.poll();
@@ -447,6 +336,7 @@ export class App {
     this.stacks = groupIntoStacks(containers);
     this.stacksTab.setData(containers, this.stacks);
     this.containersTab.setData(containers);
+    this.pushVolumes();
     this.rail.setStacks(this.stacks);
     this.refreshTopBarCounters();
     this.refreshRailCounts();
@@ -471,13 +361,18 @@ export class App {
     try {
       const volumes = await listVolumes();
       if (!this.volumesGate.isCurrent(token)) return;
-      this.volumeCount = volumes.length;
-      this.volumesTab.setData(volumes);
+      this.volumes = volumes;
+      this.pushVolumes();
       this.afterResourceFetch();
     } catch (err) {
       if (!this.volumesGate.isCurrent(token)) return;
       this.setFooterMessage(msgOf(err), 'red');
     }
+  }
+
+  /** Volumes joined with who mounts them. Re-run on either listing, so USED BY tracks the containers poll. */
+  private pushVolumes(): void {
+    if (this.volumes) this.volumesTab.setData(withUsers(this.volumes, this.containers));
   }
 
   private async fetchNetworks(token: number): Promise<void> {
@@ -552,17 +447,13 @@ export class App {
       stacks: this.stacks.length,
       containers: this.containers.length,
       images: this.imageCount,
-      volumes: this.volumeCount,
+      volumes: this.volumes?.length ?? 0,
       networks: this.networkCount,
     });
   }
 
   private handleResize(): void {
-    this.stacksTab.redraw();
-    this.containersTab.redraw();
-    this.imagesTab.redraw();
-    this.volumesTab.redraw();
-    this.networksTab.redraw();
+    for (const tab of Object.values(this.tabs)) tab.redraw();
     this.topBar.render();
     this.footer.render();
     this.render();
