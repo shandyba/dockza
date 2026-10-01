@@ -7,6 +7,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-01
+
+### Added
+
+- **Every list filters as you type.** `/` now works in all five views, not just Stacks,
+  and narrows the list with each key; `Enter` keeps the filter so the view's keys act on
+  the matches, and `Esc` clears it.
+- **Filters look past the name.** Containers and services also match on image, ID and
+  compose project; images on their ID and every tag, not just the one listed; volumes and
+  networks on driver and project.
+
 ## [0.3.1] - 2026-10-01
 
 ### Fixed
@@ -270,7 +281,8 @@ First public release on npm, as `docktui`.
 
 Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
 
-[Unreleased]: https://github.com/shandyba/dockza/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/shandyba/dockza/releases/tag/v0.3.2
 [0.3.1]: https://github.com/shandyba/dockza/releases/tag/v0.3.1
 [0.3.0]: https://github.com/shandyba/dockza/releases/tag/v0.3.0
 [0.2.6]: https://github.com/shandyba/dockza/releases/tag/v0.2.6
