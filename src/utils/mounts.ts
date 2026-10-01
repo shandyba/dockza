@@ -1,4 +1,4 @@
-import type { MountInfo } from '@models/docker';
+import type { ContainerInfo, MountInfo } from '@models/docker';
 
 const ANONYMOUS_LABEL = 'com.docker.volume.anonymous';
 /** What the daemon names a volume nobody named: 64 hex digits, like a container ID. */
@@ -12,6 +12,14 @@ const DESKTOP_HOST_ROOT = '/host_mnt';
  */
 export function isAnonymousVolume(name: string, labels: Record<string, string> = {}): boolean {
   return Object.hasOwn(labels, ANONYMOUS_LABEL) || GENERATED_NAME.test(name);
+}
+
+/** The anonymous volumes they mount, once each: what `docker rm -v` deletes along with them. */
+export function anonymousVolumes(containers: Pick<ContainerInfo, 'mounts'>[]): string[] {
+  const names = containers.flatMap((c) =>
+    c.mounts.flatMap((m) => (m.type === 'volume' && m.name && isAnonymousVolume(m.name) ? [m.name] : [])),
+  );
+  return [...new Set(names)];
 }
 
 /**

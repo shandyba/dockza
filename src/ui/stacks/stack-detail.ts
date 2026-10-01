@@ -3,7 +3,7 @@ import type { ContainerInfo, NetworkInfo, VolumeInfo } from '@models/docker';
 import type { PanelFocus, ResourceRef } from '@models/nav';
 import { t } from '@theme';
 import { escapeTags, oneLine } from '@utils/format';
-import { NO_STACK, stackCompose, type Stack } from '@utils/stacks';
+import { NO_STACK, stackCompose, stackResources, type Stack, type StackResources } from '@utils/stacks';
 import { textOption, type CopyOption } from '@ui/copy-menu';
 import { allNames } from '@ui/detail/copy-all';
 import { DetailPanel, type CopyFn } from '@ui/detail/detail-panel';
@@ -20,20 +20,6 @@ type MessageHandler = (message: string) => void;
 
 /** Untrusted text (names, paths) for tagged content. */
 const safe = (s: string): string => escapeTags(oneLine(s));
-
-/** The volumes and networks App lists, for picking out a stack's own. */
-export interface StackResources {
-  volumes: VolumeInfo[];
-  networks: NetworkInfo[];
-}
-
-/** A stack's own volumes and networks: those its compose project labelled, and its default network. */
-export function stackResources(stack: Pick<Stack, 'id'>, all: StackResources): StackResources {
-  return {
-    volumes: all.volumes.filter((v) => v.stack === stack.id),
-    networks: all.networks.filter((n) => n.stack === stack.id || n.name === `${stack.id}_default`),
-  };
-}
 
 /**
  * A stack's detail: its compose project, every container in it, and the volumes and networks the
@@ -177,7 +163,16 @@ export class StackDetail {
       '',
       this.networks,
       '',
-      `  ${t.aqua('[y] Copy')}  ${t.comment('Esc close')}`,
+      this.actionsLine(s),
     ];
+  }
+
+  private actionsLine(s: Stack): string {
+    const tail = `${t.aqua('[y] Copy')}  ${t.comment('Esc close')}`;
+    if (s.id === NO_STACK) return `  ${tail}`;
+    if (s.isLive) {
+      return `  ${t.red('[s] Stop')}  ${t.green('[r] Restart')}  ${t.orange('[k] Kill')}  ${t.red('[d] Down')}  ${tail}`;
+    }
+    return `  ${t.green('[S] Start')}  ${t.red('[d] Down')}  ${tail}`;
   }
 }

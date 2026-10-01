@@ -1,26 +1,33 @@
 import blessed from 'neo-blessed';
-import {
-  killContainer,
-  removeContainer,
-  restartContainer,
-  startContainer,
-  stopContainer,
-} from '@docker/containers';
+import { startContainer } from '@docker/containers';
 import type { ContainerInfo, ContainerStats, NetworkInfo, VolumeInfo } from '@models/docker';
 import type { Location, PanelLoc, ResourceRef } from '@models/nav';
 import { containerRef, stackRef } from '@utils/nav-history';
-import type { Stack } from '@utils/stacks';
+import { NO_STACK, type Stack, type StackResources } from '@utils/stacks';
 import { isActive } from '@utils/status';
 import { openExternalShell } from '@utils/external-terminal';
 import { ContainerDetail } from '@ui/containers/container-detail';
-import { ConfirmDialog } from '@ui/containers/confirm-dialog';
+import { ConfirmDialog, type ActionDialog } from '@ui/containers/confirm-dialog';
+import {
+  containerKillDialog,
+  containerRemoveDialog,
+  containerRestartDialog,
+  containerStopDialog,
+} from '@ui/containers/container-actions';
 import { LogViewer } from '@ui/containers/log-viewer';
 import { FilterBar } from '@ui/filter-bar';
 import { filteredHints, type FooterContext, type FooterHints } from '@ui/footer';
-import { StackDetail, type StackResources } from '@ui/stacks/stack-detail';
+import { StackDetail } from '@ui/stacks/stack-detail';
+import {
+  stackDownDialog,
+  stackKillDialog,
+  stackRestartDialog,
+  stackStart,
+  stackStopDialog,
+} from '@ui/stacks/stack-actions';
 import { StackTree } from '@ui/stacks/stack-tree';
 import type { TabNav, ViewTab } from '@ui/view-tab';
-import type { Dims, RunMutation } from '@ui/widgets';
+import type { AlsoChanges, Dims, RunMutation } from '@ui/widgets';
 
 type Handler = () => void;
 type MessageHandler = (message: string) => void;
@@ -298,7 +305,10 @@ export class StacksTab implements ViewTab {
   private treeContext(): FooterContext {
     const sel = this.tree.getSelected();
     if (!sel) return 'global';
-    if (sel.kind === 'stack') return 'stacks-tree-stack';
+    if (sel.kind === 'stack') {
+      if (sel.stack.id === NO_STACK) return 'stacks-tree-stack';
+      return sel.stack.isLive ? 'stacks-tree-stack-live' : 'stacks-tree-stack-stopped';
+    }
     return isActive(sel.container.status) ? 'stacks-tree-running' : 'stacks-tree-stopped';
   }
 
@@ -374,6 +384,10 @@ export class StacksTab implements ViewTab {
     this.screen.render();
   }
 
+  private emitInfo(msg: string): void {
+    this.infoHandlers.forEach((h) => h(msg));
+  }
+
   private emitError(err: unknown): void {
     const msg = err instanceof Error ? err.message : String(err);
     this.errorHandlers.forEach((h) => h(msg));
@@ -427,31 +441,47 @@ export class StacksTab implements ViewTab {
 
   private readonly handleS = () => {
     if (!this.active || this.isModalOpen()) return;
+    const stack = this.getStackTarget();
+    if (stack) {
+      if (this.isProject(stack) && stack.isLive) this.confirmAndRun(stackStopDialog(stack, this.resources));
+      return;
+    }
     const c = this.getActionTarget();
     if (!c || !isActive(c.status)) return;
-    this.confirmAndRun('Stop container?', `${c.name} will be stopped.`, true, () => stopContainer(c.id));
+    this.confirmAndRun(containerStopDialog(c));
   };
 
   private readonly handleR = () => {
     if (!this.active || this.isModalOpen()) return;
+    const stack = this.getStackTarget();
+    if (stack) {
+      if (this.isProject(stack) && stack.isLive) this.confirmAndRun(stackRestartDialog(stack));
+      return;
+    }
     const c = this.getActionTarget();
     if (!c || !isActive(c.status)) return;
-    this.confirmAndRun('Restart container?', `${c.name} will be restarted.`, false, () =>
-      restartContainer(c.id),
-    );
+    this.confirmAndRun(containerRestartDialog(c));
   };
 
   private readonly handleK = () => {
     if (!this.active || this.isModalOpen()) return;
+    const stack = this.getStackTarget();
+    if (stack) {
+      if (this.isProject(stack) && stack.isLive) this.confirmAndRun(stackKillDialog(stack));
+      return;
+    }
     const c = this.getActionTarget();
     if (!c || !isActive(c.status)) return;
-    this.confirmAndRun('Kill container?', `${c.name} will be killed (SIGKILL).`, true, () =>
-      killContainer(c.id),
-    );
+    this.confirmAndRun(containerKillDialog(c));
   };
 
   private readonly handleShiftS = () => {
     if (!this.active || this.isModalOpen()) return;
+    const stack = this.getStackTarget();
+    if (stack) {
+      if (this.isProject(stack)) this.startStack(stack);
+      return;
+    }
     const c = this.getActionTarget();
     if (!c) return;
     if (isActive(c.status)) {
@@ -463,22 +493,49 @@ export class StacksTab implements ViewTab {
       return;
     }
     this.closeDetailForAction();
-    void this.runMutation(() => startContainer(c.id))
-      .catch((err: unknown) => this.emitError(err))
-      .finally(() => {
-        this.tree.focus();
-        this.screen.render();
-      });
+    this.runAndRefocus(() => startContainer(c.id));
   };
 
   private readonly handleD = () => {
     if (!this.active || this.isModalOpen()) return;
+    const stack = this.getStackTarget();
+    if (stack) {
+      if (this.isProject(stack)) this.confirmAndRun(stackDownDialog(stack, this.resources));
+      return;
+    }
     const c = this.getActionTarget();
     if (!c || isActive(c.status)) return;
-    this.confirmAndRun('Remove container?', `${c.name} will be permanently removed.`, true, () =>
-      removeContainer(c.id),
-    );
+    this.confirmAndRun(containerRemoveDialog(c));
   };
+
+  /** `compose start`: no confirm, like starting a container. */
+  private startStack(stack: Stack): void {
+    const start = stackStart(stack);
+    if (!start) {
+      this.emitError(`Every service in ${stack.id} is already running`);
+      return;
+    }
+    this.closeDetailForAction();
+    this.emitInfo(`Starting ${start.count === 1 ? '1 service' : `${start.count} services`} in ${stack.id}…`);
+    this.runAndRefocus(start.run);
+  }
+
+  /** The stack a key acts on: the open stack detail's, else the selected header's. */
+  private getStackTarget(): Stack | null {
+    if (this.containerDetail.isVisible()) return null;
+    if (this.stackDetail.isVisible()) {
+      return this.stacks.find((s) => s.id === this.stackDetail.getStackId()) ?? null;
+    }
+    const sel = this.tree.getSelected();
+    return sel?.kind === 'stack' ? sel.stack : null;
+  }
+
+  /** `(no stack)` gathers containers compose didn't create: there's no project to act on as one. */
+  private isProject(stack: Stack): boolean {
+    if (stack.id !== NO_STACK) return true;
+    this.emitError('These containers are not a compose project: act on them one by one');
+    return false;
+  }
 
   /** Container targeted by tree/detail actions (detail takes precedence when open). */
   private getActionTarget(): ContainerInfo | null {
@@ -495,27 +552,33 @@ export class StacksTab implements ViewTab {
 
   /** An action that leaves the detail panel (confirm, start, shell) closes it: a history step like Esc. */
   private closeDetailForAction(): void {
-    if (this.containerDetail.isVisible()) this.nav.open(null);
+    if (this.containerDetail.isVisible() || this.stackDetail.isVisible()) this.nav.open(null);
   }
 
-  private confirmAndRun(title: string, message: string, danger: boolean, action: () => Promise<void>): void {
+  private confirmAndRun(dialog: ActionDialog): void {
     this.closeDetailForAction();
-    this.confirmDialog.show({
-      title,
-      message,
-      danger,
-      onConfirm: () => {
-        void this.runMutation(action)
-          .catch((err: unknown) => this.emitError(err))
-          .finally(() => {
-            this.tree.focus();
-            this.screen.render();
-          });
-      },
+    this.confirmDialog.choose({
+      ...dialog,
+      choices: dialog.choices.map(({ pending, run, also, ...choice }) => ({
+        ...choice,
+        onPick: () => {
+          if (pending) this.emitInfo(pending);
+          this.runAndRefocus(run, also);
+        },
+      })),
       onCancel: () => {
         this.tree.focus();
         this.screen.render();
       },
     });
+  }
+
+  private runAndRefocus(action: () => Promise<void>, also?: AlsoChanges): void {
+    void this.runMutation(action, also)
+      .catch((err: unknown) => this.emitError(err))
+      .finally(() => {
+        this.tree.focus();
+        this.screen.render();
+      });
   }
 }

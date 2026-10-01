@@ -217,12 +217,18 @@ export class App {
    * the mutation, and `force` kills those issued *during* it before re-reading the truth.
    */
   private mutationRunner(gate: RefreshGate): RunMutation {
-    return async (action) => {
-      gate.invalidate();
+    return async (action, also = {}) => {
+      // Only what the mutation can change: a plain stop must not pay for `listVolumes()`.
+      const gates = [
+        gate,
+        ...(also.volumes ? [this.volumesGate] : []),
+        ...(also.networks ? [this.networksGate] : []),
+      ];
+      for (const g of gates) g.invalidate();
       try {
         await action();
       } finally {
-        await gate.force();
+        await Promise.all(gates.map((g) => g.force()));
       }
     };
   }

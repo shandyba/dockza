@@ -17,8 +17,14 @@ export interface Dims {
   height: number | string;
 }
 
+/** Listings besides the tab's own that a mutation changes: a stack's `down` removes its networks too. */
+export interface AlsoChanges {
+  volumes?: boolean;
+  networks?: boolean;
+}
+
 /** Runs a docker mutation and refetches the affected data before resolving. Supplied by App. */
-export type RunMutation = (action: () => Promise<void>) => Promise<void>;
+export type RunMutation = (action: () => Promise<void>, also?: AlsoChanges) => Promise<void>;
 
 interface ListOptions {
   top?: number | string;

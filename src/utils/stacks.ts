@@ -1,5 +1,6 @@
-import type { ContainerInfo } from '@models/docker';
+import type { ContainerInfo, NetworkInfo, VolumeInfo } from '@models/docker';
 import { COMPOSE_PROJECT_LABEL } from '@utils/compose';
+import { anonymousVolumes } from '@utils/mounts';
 
 export const NO_STACK = '(no stack)';
 const DEFAULT_NETWORK_SUFFIX = '_default';
@@ -101,4 +102,74 @@ export function stackCompose(stack: Pick<Stack, 'services'>): { configFiles: str
   const labelled = stack.services.find((c) => c.compose && c.compose.configFiles.length > 0);
   const workingDir = stack.services.find((c) => c.compose?.workingDir)?.compose?.workingDir;
   return { configFiles: labelled?.compose?.configFiles ?? [], ...(workingDir ? { workingDir } : {}) };
+}
+
+/** The volumes and networks App lists, for picking out a stack's own. */
+export interface StackResources {
+  volumes: VolumeInfo[];
+  networks: NetworkInfo[];
+}
+
+/** A stack's own volumes and networks: those its compose project labelled, and its default network. */
+export function stackResources(stack: Pick<Stack, 'id'>, all: StackResources): StackResources {
+  return {
+    volumes: all.volumes.filter((v) => v.stack === stack.id),
+    networks: all.networks.filter((n) => n.stack === stack.id || n.name === `${stack.id}_default`),
+  };
+}
+
+/** Its compose services, without the one-off containers `compose run` left: what compose starts and restarts. */
+export function serviceContainers(stack: Pick<Stack, 'services'>): ContainerInfo[] {
+  return stack.services.filter((c) => !c.compose?.oneoff);
+}
+
+/**
+ * The order compose starts containers in: each wave after the services its members depend on. A
+ * dependency that isn't among them doesn't hold anything up; a cycle starts the rest together.
+ * Stopping goes through the waves backwards.
+ */
+export function startWaves(containers: ContainerInfo[]): ContainerInfo[][] {
+  const serviceOf = (c: ContainerInfo): string => c.compose?.service || c.name;
+  const present = new Set(containers.map(serviceOf));
+  const done = new Set<string>();
+  const waves: ContainerInfo[][] = [];
+  let rest = containers;
+  while (rest.length > 0) {
+    const ready = rest.filter((c) =>
+      (c.compose?.dependsOn ?? []).every((dep) => dep === serviceOf(c) || done.has(dep) || !present.has(dep)),
+    );
+    const wave = ready.length > 0 ? ready : rest;
+    waves.push(wave);
+    for (const c of wave) done.add(serviceOf(c));
+    rest = rest.filter((c) => !wave.includes(c));
+  }
+  return waves;
+}
+
+/** What taking a stack down removes, as `docker compose down` would, and with `-v`. */
+export interface StackDownPlan {
+  containers: ContainerInfo[];
+  /** Its networks, the default one included. */
+  networks: NetworkInfo[];
+  /** The named volumes its project created: deleted only with `-v`. */
+  volumes: VolumeInfo[];
+  /** Anonymous volumes its containers mount: deleted only with `-v`. */
+  anonymous: string[];
+  /** Its volumes and networks a container outside the stack still uses: kept either way. */
+  shared: number;
+}
+
+export function stackDownPlan(stack: Stack, all: StackResources): StackDownPlan {
+  const own = stackResources(stack, all);
+  const ids = new Set(stack.services.map((c) => c.id));
+  const onlyOurs = (users: Array<{ id: string }>): boolean => users.every((u) => ids.has(u.id));
+  const networks = own.networks.filter((n) => onlyOurs(n.users));
+  const volumes = own.volumes.filter((v) => onlyOurs(v.users));
+  return {
+    containers: stack.services,
+    networks,
+    volumes,
+    anonymous: anonymousVolumes(stack.services),
+    shared: own.networks.length - networks.length + own.volumes.length - volumes.length,
+  };
 }

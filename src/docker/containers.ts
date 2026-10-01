@@ -248,9 +248,13 @@ export async function killContainer(id: string): Promise<void> {
   }
 }
 
-export async function removeContainer(id: string): Promise<void> {
+/** `docker rm -f`; with `volumes`, `-v` too: its anonymous volumes go with it (named ones never do). */
+export async function removeContainer(
+  id: string,
+  { volumes = false }: { volumes?: boolean } = {},
+): Promise<void> {
   try {
-    await dockerode.getContainer(id).remove({ force: true });
+    await dockerode.getContainer(id).remove({ force: true, v: volumes });
   } catch (err) {
     throw new Error(`Failed to remove container ${id}: ${err instanceof Error ? err.message : String(err)}`);
   }

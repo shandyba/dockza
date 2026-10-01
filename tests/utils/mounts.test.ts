@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { MountInfo } from '@models/docker';
-import { hostPath, isAnonymousVolume, mountOrigin, mountSpec } from '@utils/mounts';
+import { anonymousVolumes, hostPath, isAnonymousVolume, mountOrigin, mountSpec } from '@utils/mounts';
 
 const HASH = 'a23bf7e5f7c1f068d35f3af5ba7c5d180b27059f025023becd466e90d20d9537';
 
@@ -69,5 +69,27 @@ describe('mountSpec', () => {
   it('has no -v form for tmpfs or a nameless volume', () => {
     expect(mountSpec(mount({ type: 'tmpfs' }))).toBeNull();
     expect(mountSpec(mount({ type: 'volume', source: '/x' }))).toBeNull();
+  });
+});
+
+describe('anonymousVolumes', () => {
+  const ANON = 'f'.repeat(64);
+  const m = (type: MountInfo['type'], name?: string): MountInfo => ({
+    type,
+    ...(name ? { name } : {}),
+    source: '/src',
+    destination: '/dst',
+    mode: '',
+    rw: true,
+  });
+
+  it('lists the anonymous volumes they mount, once each', () => {
+    const a = { mounts: [m('volume', ANON), m('volume', 'named'), m('bind')] };
+    const b = { mounts: [m('volume', ANON)] };
+    expect(anonymousVolumes([a, b])).toEqual([ANON]);
+  });
+
+  it('is empty with named volumes and binds only', () => {
+    expect(anonymousVolumes([{ mounts: [m('volume', 'named'), m('bind')] }])).toEqual([]);
   });
 });

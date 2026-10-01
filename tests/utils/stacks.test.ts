@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import type { ContainerInfo } from '@models/docker';
-import { NO_STACK, classifyContainer, groupIntoStacks, stackCompose } from '@utils/stacks';
-import { endpoint, makeContainer } from '../fixtures';
+import type { ComposeInfo, ContainerInfo } from '@models/docker';
+import {
+  NO_STACK,
+  classifyContainer,
+  groupIntoStacks,
+  serviceContainers,
+  stackCompose,
+  stackDownPlan,
+  stackResources,
+  startWaves,
+} from '@utils/stacks';
+import { endpoint, makeContainer, makeNetwork, makeVolume } from '../fixtures';
 
 function container(overrides: Partial<ContainerInfo> = {}): ContainerInfo {
   return makeContainer({
@@ -191,5 +200,94 @@ describe('stackCompose', () => {
   it('is empty for a stack compose did not label', () => {
     const [stack] = groupIntoStacks([container({ networks: on('legacy_default') })]);
     expect(stackCompose(stack)).toEqual({ configFiles: [] });
+  });
+});
+
+/** A service of compose project `p`. */
+function service(name: string, dependsOn: string[] = [], extra: Partial<ComposeInfo> = {}): ContainerInfo {
+  return container({
+    id: `c-${name}`,
+    name: `p-${name}-1`,
+    labels: { 'com.docker.compose.project': 'p' },
+    compose: { project: 'p', service: name, configFiles: [], dependsOn, oneoff: false, ...extra },
+  });
+}
+
+const names = (waves: ContainerInfo[][]) => waves.map((w) => w.map((c) => c.compose?.service ?? c.name));
+
+describe('startWaves', () => {
+  it('starts dependencies first: db, then api, then web', () => {
+    const waves = startWaves([service('web', ['api']), service('api', ['db']), service('db')]);
+    expect(names(waves)).toEqual([['db'], ['api'], ['web']]);
+  });
+
+  it('starts what nothing orders together, and containers compose did not make in one wave', () => {
+    expect(names(startWaves([service('a'), service('b')]))).toEqual([['a', 'b']]);
+    expect(names(startWaves([container({ name: 'x' }), container({ name: 'y' })]))).toEqual([['x', 'y']]);
+  });
+
+  it('ignores a dependency that is not among them', () => {
+    expect(names(startWaves([service('api', ['db'])]))).toEqual([['api']]);
+  });
+
+  it('starts a cycle together instead of hanging', () => {
+    const waves = startWaves([service('base'), service('a', ['b', 'base']), service('b', ['a'])]);
+    expect(names(waves)).toEqual([['base'], ['a', 'b']]);
+  });
+
+  it('keeps replicas of one service in one wave', () => {
+    const r1 = service('worker', ['db']);
+    const r2 = { ...service('worker', ['db']), id: 'c-worker-2' };
+    expect(startWaves([r1, r2, service('db')]).map((w) => w.length)).toEqual([1, 2]);
+  });
+});
+
+describe('serviceContainers', () => {
+  it('leaves out the containers `compose run` left', () => {
+    const [stack] = groupIntoStacks([service('api'), service('api-run', [], { oneoff: true })]);
+    expect(serviceContainers(stack).map((c) => c.name)).toEqual(['p-api-1']);
+  });
+});
+
+describe('stackResources', () => {
+  it("picks a stack's labelled volumes and networks, and its default network", () => {
+    const all = {
+      volumes: [makeVolume('p_data', { stack: 'p' }), makeVolume('q_data', { stack: 'q' })],
+      networks: [makeNetwork('p_default'), makeNetwork('p_back', { stack: 'p' }), makeNetwork('bridge')],
+    };
+    const own = stackResources({ id: 'p' }, all);
+    expect(own.volumes.map((v) => v.name)).toEqual(['p_data']);
+    expect(own.networks.map((n) => n.name)).toEqual(['p_default', 'p_back']);
+  });
+});
+
+describe('stackDownPlan', () => {
+  const ANON = 'e'.repeat(64);
+  const db = {
+    ...service('db'),
+    mounts: [{ type: 'volume' as const, name: ANON, source: '', destination: '/d', mode: '', rw: true }],
+  };
+  const api = service('api', ['db']);
+  const outsider = container({ id: 'c-out', name: 'outsider' });
+  const userOf = (c: ContainerInfo) => ({ id: c.id, name: c.name, status: c.status, exitCode: 0 });
+
+  it('removes every container and its own networks and volumes; keeps what others use', () => {
+    const [stack] = groupIntoStacks([db, api]);
+    const plan = stackDownPlan(stack, {
+      volumes: [
+        makeVolume('p_data', { stack: 'p', users: [{ ...userOf(db), destination: '/x', rw: true }] }),
+        makeVolume('p_cache', { stack: 'p' }),
+        makeVolume('p_shared', { stack: 'p', users: [{ ...userOf(outsider), destination: '/y', rw: true }] }),
+      ],
+      networks: [
+        makeNetwork('p_default', { users: [{ ...userOf(db), ip: '', aliases: [] }] }),
+        makeNetwork('p_front', { stack: 'p', users: [{ ...userOf(outsider), ip: '', aliases: [] }] }),
+      ],
+    });
+    expect(plan.containers.map((c) => c.name).sort()).toEqual(['p-api-1', 'p-db-1']);
+    expect(plan.networks.map((n) => n.name)).toEqual(['p_default']);
+    expect(plan.volumes.map((v) => v.name)).toEqual(['p_data', 'p_cache']);
+    expect(plan.anonymous).toEqual([ANON]);
+    expect(plan.shared).toBe(2);
   });
 });

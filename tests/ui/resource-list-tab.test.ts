@@ -5,7 +5,7 @@ import type { ResourceListConfig } from '@ui/resource-list-tab';
 import type { TabNav } from '@ui/view-tab';
 import type { RunMutation } from '@ui/widgets';
 import { RefreshGate } from '@utils/refresh-gate';
-import { makeScreen } from './headless';
+import { makeScreen, press } from './headless';
 
 /**
  * We otherwise don't test blessed widgets (see CONTRIBUTING.md), but the reappearing-row bug
@@ -116,8 +116,8 @@ describe('ResourceListTab deletion vs. in-flight poll', () => {
 
     // The user deletes beta while that poll is still outstanding.
     tab.list.select(1);
-    screen.emit('key d');
-    screen.emit('key y');
+    press(screen, 'd');
+    press(screen, 'y');
     await settle();
 
     expect(removed).toEqual(['b']);
@@ -155,8 +155,8 @@ describe('ResourceListTab deletion vs. in-flight poll', () => {
     tab.setData([A, B]);
 
     tab.list.select(1);
-    screen.emit('key d');
-    screen.emit('key y');
+    press(screen, 'd');
+    press(screen, 'y');
     await settle();
 
     expect(runnerCalls).toBe(1);

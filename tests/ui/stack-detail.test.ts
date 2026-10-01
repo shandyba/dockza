@@ -147,12 +147,15 @@ describe('Stacks: the stack detail over the tree', () => {
     expect(tab.location()).toEqual(here);
   });
 
-  it('container actions do nothing over a stack detail', () => {
+  it("over a stack detail, l has no container to open; d takes the panel's stack down", () => {
     press(screen, KEY.enter);
-    press(screen, 'd');
     press(screen, 'l');
-    expect(tab.isInert()).toBe(false); // no confirm
     expect(opened).toHaveLength(1); // no logs
+    press(screen, 'd');
+    expect(tab.isInert()).toBe(true); // the down dialog
+    expect(opened).toEqual([{ kind: 'detail', ref: { kind: 'stack', id: 'dzlink' } }, null]);
+    press(screen, KEY.escape);
+    expect(tab.isInert()).toBe(false);
   });
 
   it('a poll that drops the stack closes the panel without asking the router', () => {

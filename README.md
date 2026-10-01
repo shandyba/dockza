@@ -40,8 +40,8 @@ dockza
 
 ## Features
 
-- **Compose-aware Stacks view** — containers grouped by project with running / errored / stopped counts, collapsible per stack.
-- **Containers / Images / Volumes** — live CPU and memory stats, start / stop / restart / kill / remove with confirm dialogs.
+- **Compose-aware Stacks view** — containers grouped by project with running / errored / stopped counts, collapsible per stack. Stop, start, restart or kill a whole stack, or take it down (`compose down`, with or without `-v`).
+- **Containers / Images / Volumes** — live CPU and memory stats, start / stop / restart / kill / remove with confirm dialogs. Removing a container can take its anonymous volumes with it (`rm -v`).
 - **Networks** — list Docker networks with driver, scope, the containers attached, creation time, and in-use status; remove unused networks (built-in networks and any with attached containers are protected).
 - **Detail panel** — full metadata, live CPU/MEM bars, the image and compose stack a container belongs to, its published ports, the networks it is on with its address and DNS names, mounts with the volume each one comes from, the containers it depends on, and environment variables you can browse, expand to their full value, and copy to the clipboard.
 - **Everything links** — containers, images, volumes, networks and compose stacks each have a detail, and each names the others it relates to: a container's image and stack, an image's or a network's containers, a stack's services, volumes and networks, a container's `depends_on`. `Enter` on any of them opens it; `[` comes back.
@@ -116,17 +116,32 @@ Each view keeps its own filter while you switch views. A link or `[` / `]` to a 
 | `Enter` | On a stack: open the stack's detail. On a service: open the container's detail |
 | `l` | Open log viewer |
 | `x` | Shell into selected running container |
-| `s` / `r` / `k` | Stop / restart / kill running container (confirm) |
-| `S` | Start stopped container |
-| `d` | Remove stopped container (confirm) |
+| `s` | Stop the stack or running container — the dialog also offers to remove it, keeping or deleting volumes (below) |
+| `r` / `k` | Restart / kill the stack or running container (confirm) |
+| `S` | Start a stopped container, or a stack's stopped services, dependencies first |
+| `d` | Take the stack down, or remove a stopped container — keeping or deleting volumes (confirm) |
+
+On a stack header, and over a stack's detail, the keys act on the whole stack. `(no stack)` is not a compose project, so it has no stack actions.
 
 ### Containers
 
 Same per-container actions as Stacks. `Enter` always opens the detail panel.
 
+### Stopping and removing
+
+Stopping never deletes anything. Only removing does, and `-v` is the part that deletes data. The dialog behind `s` lists every way, with the safest on `y`. The dialog behind `d` lists the removing ones:
+
+| Key in the dialog | Container | Stack |
+|---|---|---|
+| `y` (`s` dialog) | **Stop** (`docker stop`): the container and its data stay | **Stop** (`docker compose stop`): its containers and data stay |
+| `d` | **Remove** (`docker rm`): the container goes, its volumes stay | **Down** (`docker compose down`): its containers and networks go, its volumes stay |
+| `v` | **Remove -v** (`docker rm -v`): its anonymous volumes go too — named volumes never do | **Down -v** (`docker compose down -v`): the volumes its project created, and its containers' anonymous ones, go too |
+
+A stack stops dependents first and starts dependencies first, as compose does. Networks and volumes another container still uses are kept, and the dialog says so. External volumes and networks are never touched. Stack actions use the Docker API, so they need no `docker` CLI and work against remote daemons too.
+
 ### Detail panel
 
-Same container actions as the list/tree (`l`, `s`, `r`, `k`, `S`, `d`, `x`) plus:
+Same container actions as the list/tree (`l`, `s`, `r`, `k`, `S`, `d`, `x`); a stack's detail takes the stack's (`s`, `r`, `k`, `S`, `d`). Plus:
 
 | Key | Action |
 |-----|--------|
@@ -219,8 +234,8 @@ Networks additionally protect the built-in `bridge` / `host` / `none` networks a
 
 ### Confirm dialog
 
-| `y` / `Y` to confirm · `n` / `N` / `Esc` to cancel |
-|-----------------------------------------------------|
+| `y` / `Y` to confirm · `d` / `v` where the dialog offers them · `n` / `N` / `Esc` to cancel |
+|-----------------------------------------------------------------------------------------------|
 
 ## Troubleshooting
 

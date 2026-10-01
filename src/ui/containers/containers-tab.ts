@@ -1,11 +1,5 @@
 import type blessed from 'neo-blessed';
-import {
-  killContainer,
-  removeContainer,
-  restartContainer,
-  startContainer,
-  stopContainer,
-} from '@docker/containers';
+import { startContainer } from '@docker/containers';
 import type { ContainerInfo, ContainerStats } from '@models/docker';
 import type { Location, PanelLoc, ResourceRef } from '@models/nav';
 import { t } from '@theme';
@@ -17,7 +11,13 @@ import { openExternalShell } from '@utils/external-terminal';
 import { ContainerList } from '@ui/containers/container-list';
 import type { RowStats } from '@ui/containers/container-list';
 import { ContainerDetail } from '@ui/containers/container-detail';
-import { ConfirmDialog } from '@ui/containers/confirm-dialog';
+import { ConfirmDialog, type ActionDialog } from '@ui/containers/confirm-dialog';
+import {
+  containerKillDialog,
+  containerRemoveDialog,
+  containerRestartDialog,
+  containerStopDialog,
+} from '@ui/containers/container-actions';
 import { LogViewer } from '@ui/containers/log-viewer';
 import { FilterBar } from '@ui/filter-bar';
 import { filteredHints, type FooterHints } from '@ui/footer';
@@ -59,24 +59,23 @@ export class ContainersTab implements ViewTab {
     if (c) this.nav.open({ kind: 'logs', ref: containerRef(c) });
   };
 
-  private confirmAndRun(title: string, message: string, danger: boolean, action: () => Promise<void>): void {
+  private confirmAndRun(dialog: ActionDialog): void {
     this.closeDetailForAction();
-    this.confirmDialog.show({
-      title,
-      message,
-      danger,
-      onConfirm: () => {
-        void this.runMutation(action)
-          .catch((err: unknown) => this.emitError(err))
-          .finally(() => {
-            this.containerList.focus();
-            this.screen.render();
-          });
-      },
-      onCancel: () => {
-        this.containerList.focus();
-        this.screen.render();
-      },
+    const done = () => {
+      this.containerList.focus();
+      this.screen.render();
+    };
+    this.confirmDialog.choose({
+      ...dialog,
+      choices: dialog.choices.map((choice) => ({
+        ...choice,
+        onPick: () => {
+          void this.runMutation(choice.run, choice.also)
+            .catch((err: unknown) => this.emitError(err))
+            .finally(done);
+        },
+      })),
+      onCancel: done,
     });
   }
 
@@ -84,25 +83,21 @@ export class ContainersTab implements ViewTab {
     if (!this.active || this.isModalOpen()) return;
     const c = this.getActionTarget();
     if (!c || !isActive(c.status)) return;
-    this.confirmAndRun('Stop container?', `${c.name} will be stopped.`, true, () => stopContainer(c.id));
+    this.confirmAndRun(containerStopDialog(c));
   };
 
   private readonly handleR = () => {
     if (!this.active || this.isModalOpen()) return;
     const c = this.getActionTarget();
     if (!c || !isActive(c.status)) return;
-    this.confirmAndRun('Restart container?', `${c.name} will be restarted.`, false, () =>
-      restartContainer(c.id),
-    );
+    this.confirmAndRun(containerRestartDialog(c));
   };
 
   private readonly handleK = () => {
     if (!this.active || this.isModalOpen()) return;
     const c = this.getActionTarget();
     if (!c || !isActive(c.status)) return;
-    this.confirmAndRun('Kill container?', `${c.name} will be killed (SIGKILL).`, true, () =>
-      killContainer(c.id),
-    );
+    this.confirmAndRun(containerKillDialog(c));
   };
 
   private readonly handleShiftS = () => {
@@ -133,9 +128,7 @@ export class ContainersTab implements ViewTab {
     if (!this.active || this.isModalOpen()) return;
     const c = this.getActionTarget();
     if (!c || isActive(c.status)) return;
-    this.confirmAndRun('Remove container?', `${c.name} will be permanently removed.`, true, () =>
-      removeContainer(c.id),
-    );
+    this.confirmAndRun(containerRemoveDialog(c));
   };
 
   private readonly handleX = () => {

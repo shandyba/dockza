@@ -5,6 +5,8 @@ import { escapeTags, visualLength } from '@utils/format';
 export type FooterContext =
   | 'global'
   | 'stacks-tree-stack'
+  | 'stacks-tree-stack-live'
+  | 'stacks-tree-stack-stopped'
   | 'stacks-tree-running'
   | 'stacks-tree-stopped'
   | 'containers-running'
@@ -65,6 +67,28 @@ const HINTS: Record<FooterContext, Hint[]> = {
     BACK,
     { key: 'h', verb: 'help' },
     { key: 'q', verb: 'quit' },
+  ],
+  'stacks-tree-stack-live': [
+    { key: '↑↓', verb: 'nav' },
+    { key: '↵', verb: 'detail' },
+    { key: 's', verb: 'stop' },
+    { key: 'r', verb: 'restart' },
+    { key: 'k', verb: 'kill' },
+    { key: 'd', verb: 'down' },
+    { key: '→←', verb: 'expand' },
+    FILTER,
+    BACK,
+    { key: 'h', verb: 'help' },
+  ],
+  'stacks-tree-stack-stopped': [
+    { key: '↑↓', verb: 'nav' },
+    { key: '↵', verb: 'detail' },
+    { key: 'S', verb: 'start' },
+    { key: 'd', verb: 'down' },
+    { key: '→←', verb: 'expand' },
+    FILTER,
+    BACK,
+    { key: 'h', verb: 'help' },
   ],
   'stacks-tree-running': [
     { key: '↑↓', verb: 'nav' },
@@ -161,6 +185,8 @@ const HINTS: Record<FooterContext, Hint[]> = {
   'stack-detail': [
     { key: 'Tab', verb: 'section' },
     { key: 'y', verb: 'copy' },
+    { key: 's/r/k', verb: 'ctrl' },
+    { key: 'd', verb: 'down' },
     { key: '↑↓', verb: 'scroll' },
     { key: 'Esc', verb: 'close' },
     BACK,
