@@ -7,6 +7,29 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-01
+
+### Fixed
+
+- **Mount sources were blank or pointed inside Docker Desktop's VM** — since 0.1.0. An
+  anonymous volume showed no source and a bind read `/host_mnt/…`; MOUNTS now names each
+  volume and shows a bind's host path.
+
+### Added
+
+- **See which containers use a volume.** The Volumes list gains a USED BY column, and
+  `Enter` opens a volume's detail: its mountpoint, where it came from (a compose project,
+  or anonymous), and every container mounting it, running or stopped.
+- **Follow a mount to its volume, and a volume to its containers.** `Tab` moves the
+  cursor between a detail panel's sections, and `Enter` on a mount or a USED BY row opens
+  the volume or container it names.
+- **Back and forward through the screens you visited.** `[` and `]` (or `Alt+←` /
+  `Alt+→`) step through them, followed links included, returning to the row and section
+  the cursor was on.
+- **More to copy from a detail panel.** `y` copies from the selected row, or with none
+  selected from the panel's subject: a container's name, ID or image; a mount's source,
+  destination or `docker run -v` spec; a volume's name or mountpoint.
+
 ## [0.2.6] - 2026-10-01
 
 ### Fixed
@@ -204,7 +227,8 @@ First public release on npm, as `docktui`.
 
 Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
 
-[Unreleased]: https://github.com/shandyba/dockza/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/shandyba/dockza/releases/tag/v0.3.0
 [0.2.6]: https://github.com/shandyba/dockza/releases/tag/v0.2.6
 [0.2.5]: https://github.com/shandyba/dockza/releases/tag/v0.2.5
 [0.2.4]: https://github.com/shandyba/dockza/releases/tag/v0.2.4
