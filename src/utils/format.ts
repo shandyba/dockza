@@ -43,6 +43,99 @@ export function stripTags(s: string): string {
   return s.replace(/\{[^}]+\}/g, '');
 }
 
+/**
+ * Makes arbitrary text safe to drop into tag-enabled blessed content (what `blessed.escape` does).
+ * Escape last: `stripTags` reads `{open}` as a zero-width tag, so measure and pad before this.
+ */
+export function escapeTags(s: string): string {
+  return s.replace(/[{}]/g, (ch) => (ch === '{' ? '{open}' : '{close}'));
+}
+
+/** Columns a code point occupies. The UI injects blessed's table; plain text defaults to 1. */
+export type CharWidth = (codePoint: number) => number;
+
+const unitWidth: CharWidth = () => 1;
+
+/**
+ * Control characters → caret notation (`ESC` → `^[`, DEL → `^?`, C1 → `\x9b`) so untrusted text
+ * can't smuggle terminal sequences onto the screen. `\n` is kept: callers decide how to show it.
+ */
+export function displaySafe(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code === 0x0a) out += ch;
+    else if (code < 0x20) out += `^${String.fromCharCode(code + 0x40)}`;
+    else if (code === 0x7f) out += '^?';
+    else if (code >= 0x80 && code < 0xa0) out += `\\x${code.toString(16)}`;
+    else out += ch;
+  }
+  return out;
+}
+
+export const NEWLINE_GLYPH = '⏎';
+
+/** `displaySafe`, then newlines shown as `⏎` — a single-line rendering of any text. */
+export function oneLine(s: string): string {
+  return displaySafe(s).split('\n').join(NEWLINE_GLYPH);
+}
+
+export function textWidth(s: string, charWidth: CharWidth = unitWidth): number {
+  let w = 0;
+  for (const ch of s) w += Math.max(0, charWidth(ch.codePointAt(0) ?? 0));
+  return w;
+}
+
+/** Width-aware `truncate`: fits `s` into `width` columns, ending in `…` when it had to cut. */
+export function fitWidth(
+  s: string,
+  width: number,
+  charWidth: CharWidth = unitWidth,
+): { text: string; truncated: boolean } {
+  const max = Math.max(1, Math.floor(width));
+  if (textWidth(s, charWidth) <= max) return { text: s, truncated: false };
+  let text = '';
+  let used = 0;
+  for (const ch of s) {
+    const w = Math.max(0, charWidth(ch.codePointAt(0) ?? 0));
+    if (used + w > max - 1) break;
+    text += ch;
+    used += w;
+  }
+  return { text: `${text}…`, truncated: true };
+}
+
+/**
+ * Hard-wraps one line (no `\n`) into pieces of at most `width` columns — `firstWidth` for the first
+ * piece, so a caller can hang-indent the rest. Splits between code points, never inside a surrogate
+ * pair, and moves a wide glyph to the next piece rather than letting it straddle the edge.
+ */
+export function wrapLine(
+  s: string,
+  width: number,
+  charWidth: CharWidth = unitWidth,
+  firstWidth: number = width,
+): string[] {
+  const rest = Math.max(1, Math.floor(width));
+  let max = Math.max(1, Math.floor(firstWidth));
+  const out: string[] = [];
+  let line = '';
+  let used = 0;
+  for (const ch of s) {
+    const w = Math.max(0, charWidth(ch.codePointAt(0) ?? 0));
+    if (used + w > max && line !== '') {
+      out.push(line);
+      line = '';
+      used = 0;
+      max = rest;
+    }
+    line += ch;
+    used += w;
+  }
+  out.push(line);
+  return out;
+}
+
 export function visualLength(s: string): number {
   return stripTags(s).length;
 }

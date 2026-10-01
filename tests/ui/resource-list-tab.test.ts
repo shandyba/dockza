@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { PassThrough } from 'stream';
-import blessed from 'neo-blessed';
+import type blessed from 'neo-blessed';
 import { ResourceListTab } from '@ui/resource-list-tab';
 import type { ResourceListConfig } from '@ui/resource-list-tab';
 import type { RunMutation } from '@ui/widgets';
 import { RefreshGate } from '@utils/refresh-gate';
+import { makeScreen } from './headless';
 
 /**
  * We otherwise don't test blessed widgets (see CONTRIBUTING.md), but the reappearing-row bug
@@ -19,19 +19,6 @@ interface Item {
 
 const A: Item = { id: 'a', name: 'alpha' };
 const B: Item = { id: 'b', name: 'beta' };
-
-/** Headless screen. Streams must be injected — under a pipe blessed reports cols/rows of 1. */
-function makeScreen(): blessed.Widgets.Screen {
-  const input: any = new PassThrough();
-  input.isTTY = true;
-  input.setRawMode = () => input;
-  const output: any = new PassThrough();
-  output.isTTY = true;
-  output.columns = 120;
-  output.rows = 40;
-  output.resume();
-  return blessed.screen({ input, output, terminal: 'xterm-256color', smartCSR: true });
-}
 
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void;

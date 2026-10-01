@@ -1,6 +1,14 @@
 import blessed from 'neo-blessed';
 import { C } from '@theme';
+import type { CharWidth } from '@utils/format';
 type Parent = blessed.Widgets.Screen | blessed.Widgets.BoxElement;
+
+/**
+ * Columns blessed gives a code point under `fullUnicode` (CJK / emoji take 2). Text we pre-wrap
+ * must be measured the same way or blessed re-wraps it and our line numbers drift.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- `unicode` is missing from @types/blessed
+export const charWidth: CharWidth = (codePoint) => (blessed as any).unicode.charWidth(codePoint);
 
 export interface Dims {
   top: number | string;

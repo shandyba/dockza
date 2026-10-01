@@ -118,11 +118,20 @@ export class App {
       this.render();
     });
 
+    // Polls re-emit the selection every few seconds; while the detail panel, log viewer, a confirm
+    // or the filter is up, the footer belongs to that overlay and must not snap back to list hints.
     this.stacksTab.on('error', (msg) => this.setFooterMessage(msg, 'red'));
+    this.stacksTab.on('info', (msg) => this.setFooterMessage(msg, 'green'));
     this.stacksTab.on('navigate', (sel) => {
-      if (this.activeView !== 'stacks') return;
+      if (this.activeView !== 'stacks' || this.stacksTab.isOverlayOpen()) return;
       this.footer.setContext(this.contextForStacks(sel));
       this.render();
+    });
+    this.stacksTab.on('detail-env', (active) => {
+      if (this.activeView === 'stacks') {
+        this.footer.setContext(active ? 'detail-env' : 'detail');
+        this.render();
+      }
     });
     this.stacksTab.on('detail-open', () => {
       if (this.activeView === 'stacks') {
@@ -144,10 +153,17 @@ export class App {
     });
 
     this.containersTab.on('error', (msg) => this.setFooterMessage(msg, 'red'));
+    this.containersTab.on('info', (msg) => this.setFooterMessage(msg, 'green'));
     this.containersTab.on('select', (c) => {
-      if (this.activeView !== 'containers') return;
+      if (this.activeView !== 'containers' || this.containersTab.isOverlayOpen()) return;
       this.footer.setContext(this.contextForContainer(c));
       this.render();
+    });
+    this.containersTab.on('detail-env', (active) => {
+      if (this.activeView === 'containers') {
+        this.footer.setContext(active ? 'detail-env' : 'detail');
+        this.render();
+      }
     });
     this.containersTab.on('detail-open', () => {
       if (this.activeView === 'containers') {
@@ -220,12 +236,9 @@ export class App {
     return isActive(c.status) ? 'containers-running' : 'containers-stopped';
   }
 
-  private readonly toggleHelp = (): void => {
-    if (this.overlayOpen) {
-      this.helpOverlay.hide();
-      return;
-    }
-    if (this.isHelpBlocked()) return;
+  /** Opens help. Closing is the overlay's own job: it holds the keyboard while it is up. */
+  private readonly openHelp = (): void => {
+    if (this.overlayOpen || this.isHelpBlocked()) return;
     this.overlayOpen = true;
     this.helpOverlay.show();
   };
@@ -251,7 +264,7 @@ export class App {
       });
     }
 
-    this.screen.key(['h'], this.toggleHelp);
+    this.screen.key(['h'], this.openHelp);
 
     this.screen.key(['q', 'C-c'], () => {
       if (this.overlayOpen || this.isModalOpen()) return;

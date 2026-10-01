@@ -36,7 +36,7 @@ jobs:
 
       # The release gate: no notes, no publish. Fails when CHANGELOG.md has no
       # section for this version, or the section has no entries under it.
-      # `npm run release <version>` writes both the section and the version bump,
+      # `npm run release` writes both the section and the version bump,
       # so reaching here without notes means the manifest was edited by hand.
       - name: Verify CHANGELOG has notes for this version
         run: node scripts/changelog.mjs extract "${GITHUB_REF_NAME#v}" > /dev/null

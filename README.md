@@ -43,7 +43,7 @@ dockza
 - **Compose-aware Stacks view** — containers grouped by project with running / errored / stopped counts, collapsible per stack.
 - **Containers / Images / Volumes** — live CPU and memory stats, start / stop / restart / kill / remove with confirm dialogs.
 - **Networks** — list Docker networks with driver, scope, attached-container count, creation time, and in-use status; remove unused networks (built-in networks and any with attached containers are protected).
-- **Detail panel** — full metadata, mounts, environment, live CPU/MEM bars.
+- **Detail panel** — full metadata, mounts, live CPU/MEM bars, and environment variables you can browse, expand to their full value, and copy to the clipboard.
 - **Streaming log viewer** with follow mode, scrollback cap, and color-coded stdout/stderr.
 - **Filter** — press `/` from Stacks to filter by stack, service, or image name.
 - **Side rail navigation** — `1`–`5` or `Tab` cycles views; click a live stack to jump to it.
@@ -73,6 +73,12 @@ DOCKER_HOST=npipe:////./pipe/docker_engine dockza             # Windows named pi
 ### Shell-into-container (`x` key)
 
 Requires the `docker` CLI to be on your `PATH`. dockza launches your platform's native terminal with `docker exec -it <id> sh` (falls back to `bash` if available inside the container).
+
+### Clipboard
+
+Copying uses your platform's clipboard tool: `pbcopy` on macOS, `clip.exe` on Windows and WSL, `wl-copy` (from `wl-clipboard`) on Wayland, `xclip` or `xsel` on X11, and `termux-clipboard-set` on Termux. Inside tmux, dockza also loads the text into tmux's paste buffer.
+
+Over SSH, or when none of those tools works, dockza falls back to an OSC 52 escape sequence, which asks your terminal to set the clipboard. Most modern terminals support it (kitty, WezTerm, Alacritty, foot, Windows Terminal, and iTerm2 once *Applications in terminal may access clipboard* is enabled). Inside tmux, it needs `set -g set-clipboard on`. Some terminals cap the size of an OSC 52 copy, so very large values may not arrive that way. The footer says "via terminal (OSC 52)" whenever this path was used.
 
 ## Key bindings
 
@@ -109,9 +115,32 @@ Same container actions as the list/tree (`l`, `s`, `r`, `k`, `S`, `d`, `x`) plus
 
 | Key | Action |
 |-----|--------|
-| `e` | Toggle environment variables (expanded / collapsed) |
-| `↑ ↓` | Scroll |
+| `e` | Show / hide environment variables |
+| `y` | Copy menu (below) |
+| `↑ ↓` / `PgUp PgDn` / `Home End` | Scroll |
 | `Esc` | Close |
+
+While the environment variables are shown, the arrow keys select a variable instead of scrolling:
+
+| Key | Action |
+|-----|--------|
+| `↑ ↓` | Select a variable (past the first / last one, scroll the panel) |
+| `PgUp PgDn` / `Home End` | Move the selection a page / to either end |
+| `Enter` | Toggle the selected variable's full value (long and multi-line values are truncated until expanded) |
+| `→` / `←` | Expand / collapse the selected value |
+| `E` | Expand all values, or collapse them all |
+
+### Copy menu (`y`)
+
+| Key | Copies |
+|-----|--------|
+| `n` | Name of the selected variable |
+| `v` | Value of the selected variable |
+| `y` | `NAME=value` of the selected variable |
+| `a` | All variables, `NAME=value` one per line |
+| `Esc` | Cancel |
+
+`n`, `v` and `y` need a selected variable, so with the variables hidden only `a` is offered.
 
 ### Log viewer
 

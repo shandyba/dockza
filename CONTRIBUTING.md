@@ -21,7 +21,8 @@ src/
   theme.ts                Color palette (C) + tag helpers (t.purple(...), etc.).
   docker/                 Dockerode wrappers. Pure transformations live alongside.
   models/docker.ts        Shared types: ContainerInfo, ImageInfo, VolumeInfo, ...
-  utils/                  Pure helpers: format, stats, status, stacks, term-caps.
+  utils/                  Pure helpers: format, stats, status, stacks, term-caps, env-vars,
+                          viewport, clipboard (strategy selection + an injectable spawn).
   ui/                     neo-blessed widgets.
     app.ts                Screen, polling loop, view routing, global keys.
     widgets.ts            Shared factories + Dims interface.
@@ -30,8 +31,9 @@ src/
     footer.ts             One-row context-aware key hints + last-refresh ticker.
     side-rail.ts          28-col left rail: views + live stacks.
     help-overlay.ts       Help modal toggled with `h`.
+    copy-menu.ts          `y` "Copy to clipboard" popup, shared by any view that offers copies.
     stacks/               Stacks view + stack tree.
-    containers/           Containers tab, detail panel, log viewer, confirm dialog.
+    containers/           Containers tab, detail panel (+ its ENV section), log viewer, confirm dialog.
     images/               Images tab.
     volumes/              Volumes tab.
     networks/             Networks tab.
@@ -52,18 +54,23 @@ Imports use TypeScript path aliases (`@docker/*`, `@ui/*`, `@utils/*`, `@models/
 - **Status-driven coloring** for containers goes through `src/utils/status.ts` (`statusDot`, `statusLabel`, `colorByStatus`, `isActive`, `cpuColor`, `memColor`, `formatCpuCell`, `formatMemCell`).
 - **Shared widget factories** in `src/ui/widgets.ts` (`createListWidget`, `createHeaderBar`, `createCenteredMessage`, `listSelected`) — use them instead of re-rolling `blessed.list` config.
 - **Key handlers** registered with `screen.key()` when a widget is shown **must** be removed with `screen.removeKey()` when it hides — otherwise they leak across views.
+- **Popups that own the keyboard** set `screen.grabKeys` while open and take keys on their own element (see `copy-menu.ts`, `help-overlay.ts`). That mutes every `screen.key` handler underneath — a tab's `k` (kill) can't fire behind the popup — without each tab having to guard against it.
+- **Two `screen.key` handlers on one key don't stack safely.** blessed's emitter walks the live listener list, so a handler that removes itself (every `hide()` does) makes the next handler for that key get skipped. That is how Esc once closed the detail panel under the help overlay and left the help up. Give overlays the keyboard instead (above).
+- **Untrusted text** (env values, names, docker errors) goes into tagged content through `displaySafe` / `oneLine` and `escapeTags` from `src/utils/format.ts`, so it can neither inject terminal sequences nor be read as blessed tags. Measure and pad before escaping.
 - **Tabs never fetch.** `src/ui/app.ts` is the only module that imports `list*` from `@docker/*`; it owns every listing and pushes results in through `setData`. Mutations go through the `RunMutation` callback App injects into each tab, which invalidates in-flight polls (via `src/utils/refresh-gate.ts`) and refetches — otherwise a poll that straddles the mutation writes its pre-mutation snapshot back over the result. `grep -rn "listContainers\|listImages\|listVolumes\|listNetworks" src/ui` must match only `app.ts`.
 
 ## Tests
 
 Vitest, with `tests/` mirroring `src/`. We test:
 
-- Pure functions (`format`, `stats`, `status`, `stacks`, `term-caps`).
+- Pure functions (`format`, `stats`, `status`, `stacks`, `term-caps`, `env-vars`, `viewport`).
+- `clipboard`, with the platform, environment and `spawn` injected, so every platform's strategy runs on any CI host.
+- `env-section` (the detail panel's ENV state and rendering), which is blessed-free.
 - Pure transformations from dockerode payloads (`toContainerInfo`, `toContainerStats`).
 
 We intentionally **do not** test blessed widgets (they need a real terminal) or thin try/catch shells around dockerode IO (testing them tests the mock). When you add a new pure utility, add tests next to it.
 
-The one deliberate exception is `tests/ui/resource-list-tab.test.ts`: the stale-poll regression it guards lives in the seam between a tab and App's poller, so it has to drive a real tab. It builds the screen with injected `PassThrough` streams (`isTTY`, explicit `columns`/`rows`, stubbed `setRawMode`) — under a pipe blessed reports 1×1 and layout-dependent code degenerates. Keep new widget tests to that bar: only when the behaviour cannot be reached from a pure unit.
+The one deliberate exception is `tests/ui/resource-list-tab.test.ts`: the stale-poll regression it guards lives in the seam between a tab and App's poller, so it has to drive a real tab. It builds the screen with injected `PassThrough` streams (`isTTY`, explicit `columns`/`rows`, stubbed `setRawMode`) — under a pipe blessed reports 1×1 and layout-dependent code degenerates. Keep new widget tests to that bar: only when the behaviour cannot be reached from a pure unit. `tests/ui/container-detail.test.ts` meets it too. It covers the copy menu holding the keyboard while a tab's screen keys stay registered, and blessed's own wrapping of the panel's lines. Both share the headless screen in `tests/ui/headless.ts`, whose `press()` sends raw bytes through blessed's real key parser (`screen.emit('key …')` would bypass `grabKeys` and the parser).
 
 ```bash
 npm test               # one-shot
@@ -103,17 +110,41 @@ No strict convention enforced, but short imperative subjects help (`fix log-view
 
 Maintainer-only. `CHANGELOG.md` is the single source of truth: the npm release, the GitHub Release page and any future site listing are all derived from it, so nothing ships without notes.
 
-**1. Write the notes.** Rewrite the `[Unreleased]` section from the full diff since the last release tag, following the house style below:
+**1. Write the notes.** Rewrite the `[Unreleased]` section from everything since the last release tag — its commits, plus whatever is staged on top of them — following the house style below:
 
 ```bash
 git log --format='%h %s' "$(git describe --tags --abbrev=0)..HEAD"
-git diff "$(git describe --tags --abbrev=0)..HEAD" -- . ':!package-lock.json' ':!coverage' ':!dist'
+git diff --cached "$(git describe --tags --abbrev=0)" -- . ':!package-lock.json' ':!coverage' ':!dist'
 ```
 
-**2. Promote and tag:**
+**2. Promote:**
 
 ```bash
-npm run release 0.2.4           # dates the section, rewrites link refs, bumps both manifests
+npm run release                 # asks major / minor / patch (default) / custom; dates the
+                                # section, rewrites link refs, bumps both manifests
+```
+
+This is the one place a version is chosen. It can also be given up front — `npm run release minor`, `npm run release 0.3.0-rc.1`.
+
+**3. Commit, tag, push:**
+
+```bash
+npm run release-git             # commits staged work, then [Release] v<version>; tags; pushes
+```
+
+It reads the version back out of `package.json`, shows what it is about to do, asks once, and then:
+
+- **Commits whatever is staged, on its own, first.** Work you already committed needs nothing; work you staged and released straight away still gets its own commit rather than vanishing into the release one. `CHANGELOG.md` and the version bump are held out of it even when staged. The message is yours: `-m`, your editor, or a proposal from a draft command (below) that you accept or edit at the prompt.
+- **Commits `[Release] v<version>`** with `CHANGELOG.md`, `package.json` and `package-lock.json` and nothing else. Unstaged changes to other files stay unstaged and are listed — the notes were not written from them, so they are not in the release.
+- **Tags `v<version>` and runs `git push --atomic origin main v<version>`**, so the tag cannot reach GitHub without the commit it points at.
+
+It refuses to start off `main`, behind `origin/main`, or before `npm run release` has bumped the version, and writes nothing if you decline. Rerun it after a failed push, or after `--no-push`, and it only pushes. Its own flags go after `--`, which npm otherwise keeps for itself: `npm run release-git -- --yes` (no question), `-- --no-push`, `-- -m "[Fix] ..."` (your message instead of a draft).
+
+To have that first message proposed rather than typed, point `git config release.draftCommand` at a command of your own. It is optional and local to your clone; the contract it is run under is at the top of `scripts/release-git.mjs`.
+
+By hand, the same step is the old two lines — which put anything staged into the release commit:
+
+```bash
 git commit -am "[Release] v0.2.4"
 git tag v0.2.4 && git push origin main v0.2.4
 ```
@@ -133,7 +164,8 @@ git tag -d v0.2.4 && git push --delete origin v0.2.4
 Useful directly:
 
 ```bash
-npm run release 0.2.4 --dry-run   # preview the promotion, write nothing
+npm run release --dry-run         # preview the promotion, write nothing
+npm run release-git -- --no-push  # commit and tag, push later
 npm run changelog 0.2.3           # print one section (what CI gates on)
 ```
 
@@ -171,13 +203,6 @@ What separates this changelog from a commit log:
 - Purely internal work (tests, CI, refactors) goes under `### Project meta`, and only when genuinely notable.
 - Never write roadmap items, "coming soon", or anything the diff doesn't support.
 - Match the surrounding prose: em dashes, inline code for identifiers, `GiB`/`MiB` sizes, `4d 2h` uptimes.
-
-Useful directly:
-
-```bash
-npm run release 0.2.4 --dry-run   # preview the promotion, write nothing
-npm run changelog 0.2.3           # print one section (what CI gates on)
-```
 
 ## Reporting bugs
 

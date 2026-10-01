@@ -1,6 +1,6 @@
 import blessed from 'neo-blessed';
 import { C, t } from '@theme';
-import { visualLength } from '@utils/format';
+import { escapeTags, visualLength } from '@utils/format';
 
 export type FooterContext =
   | 'global'
@@ -14,6 +14,7 @@ export type FooterContext =
   | 'volumes'
   | 'networks'
   | 'detail'
+  | 'detail-env'
   | 'log';
 
 export interface FooterMessage {
@@ -106,9 +107,18 @@ const HINTS: Record<FooterContext, Hint[]> = {
   ],
   detail: [
     { key: 'e', verb: 'env' },
+    { key: 'y', verb: 'copy' },
     { key: 'l', verb: 'logs' },
     { key: 's/r/k', verb: 'ctrl' },
     { key: '↑↓', verb: 'scroll' },
+    { key: 'Esc', verb: 'close' },
+  ],
+  'detail-env': [
+    { key: '↑↓', verb: 'select' },
+    { key: '↵', verb: 'value' },
+    { key: 'E', verb: 'all' },
+    { key: 'y', verb: 'copy' },
+    { key: 'e', verb: 'hide' },
     { key: 'Esc', verb: 'close' },
   ],
   log: [
@@ -180,7 +190,8 @@ export class Footer {
 
   private buildMessage(): string {
     if (!this.message) return '';
-    const text = this.message.text;
+    // Messages are plain text that can quote anything (a var name, a docker error): never markup.
+    const text = escapeTags(this.message.text);
     if (this.message.color === 'red') return ` ${t.red(text)}`;
     if (this.message.color === 'green') return ` ${t.green(text)}`;
     return ` ${t.fg(text)}`;

@@ -37,6 +37,8 @@ export class ContainersTab {
   private detailOpenHandlers: (() => void)[] = [];
   private logOpenHandlers: (() => void)[] = [];
   private logFollowChangeHandlers: ((following: boolean) => void)[] = [];
+  private detailEnvHandlers: ((active: boolean) => void)[] = [];
+  private infoHandlers: ((message: string) => void)[] = [];
 
   private readonly handleEnter = () => {
     if (!this.active || this.isOverlayOpen()) return;
@@ -56,7 +58,7 @@ export class ContainersTab {
   };
 
   private confirmAndRun(title: string, message: string, danger: boolean, action: () => Promise<void>): void {
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
+    this.closeDetailForAction();
     this.confirmDialog.show({
       title,
       message,
@@ -116,7 +118,7 @@ export class ContainersTab {
       this.emitError(`Cannot start ${c.name}: status is ${c.status}`);
       return;
     }
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
+    this.closeDetailForAction();
     void this.runMutation(() => startContainer(c.id))
       .catch((err: unknown) => this.emitError(err))
       .finally(() => {
@@ -141,7 +143,7 @@ export class ContainersTab {
       if (c) this.emitError(`Cannot exec into ${c.name}: container is not running`);
       return;
     }
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
+    this.closeDetailForAction();
 
     const result = openExternalShell(c.id);
     if (!result.ok) {
@@ -187,18 +189,25 @@ export class ContainersTab {
       this.logFollowChangeHandlers.forEach((h) => h(following));
     });
 
+    this.containerDetail.on('env-mode', (active) => this.detailEnvHandlers.forEach((h) => h(active)));
+    this.containerDetail.on('info', (msg) => this.infoHandlers.forEach((h) => h(msg)));
+    this.containerDetail.on('error', (msg) => this.emitError(msg));
+
     this.containerList.hide();
   }
 
-  on(event: 'error', handler: ErrorHandler): void;
+  on(event: 'error' | 'info', handler: ErrorHandler): void;
   on(event: 'select', handler: ContainerSelectHandler): void;
   on(event: 'detail-open' | 'log-open', handler: () => void): void;
   on(event: 'log-follow-change', handler: (following: boolean) => void): void;
+  on(event: 'detail-env', handler: (active: boolean) => void): void;
   on(
-    event: 'error' | 'select' | 'detail-open' | 'log-open' | 'log-follow-change',
-    handler: ErrorHandler | ContainerSelectHandler | (() => void) | ((following: boolean) => void),
+    event: 'error' | 'info' | 'select' | 'detail-open' | 'log-open' | 'log-follow-change' | 'detail-env',
+    handler: ErrorHandler | ContainerSelectHandler | (() => void) | ((flag: boolean) => void),
   ): void {
     if (event === 'error') this.errorHandlers.push(handler as ErrorHandler);
+    if (event === 'info') this.infoHandlers.push(handler as ErrorHandler);
+    if (event === 'detail-env') this.detailEnvHandlers.push(handler as (active: boolean) => void);
     if (event === 'select') this.containerSelectHandlers.push(handler as ContainerSelectHandler);
     if (event === 'detail-open') this.detailOpenHandlers.push(handler as () => void);
     if (event === 'log-open') this.logOpenHandlers.push(handler as () => void);
@@ -340,6 +349,16 @@ export class ContainersTab {
       if (id) return this.containers.find((c) => c.id === id) ?? null;
     }
     return this.containerList.getSelected();
+  }
+
+  /**
+   * An action that leaves the detail panel (confirm, start, shell) hides it here. Re-emitting the
+   * selection puts the footer back on the list's hints now rather than at the next poll.
+   */
+  private closeDetailForAction(): void {
+    if (!this.containerDetail.isVisible()) return;
+    this.containerDetail.hide();
+    this.emitSelect();
   }
 
   private emitSelect(): void {

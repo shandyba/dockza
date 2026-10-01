@@ -22,6 +22,7 @@ type NavigateHandler = (sel: StackTreeSelection) => void;
 type DetailOpenHandler = () => void;
 type LogOpenHandler = () => void;
 type LogFollowHandler = (following: boolean) => void;
+type DetailEnvHandler = (active: boolean) => void;
 
 export class StacksTab {
   private screen: blessed.Widgets.Screen;
@@ -44,6 +45,8 @@ export class StacksTab {
   private detailOpenHandlers: DetailOpenHandler[] = [];
   private logOpenHandlers: LogOpenHandler[] = [];
   private logFollowHandlers: LogFollowHandler[] = [];
+  private detailEnvHandlers: DetailEnvHandler[] = [];
+  private infoHandlers: ErrorHandler[] = [];
 
   constructor(
     screen: blessed.Widgets.Screen,
@@ -87,17 +90,24 @@ export class StacksTab {
 
     this.tree.on('navigate', (sel) => this.navigateHandlers.forEach((h) => h(sel)));
 
+    // Closing re-emits the selection so the footer goes back to the tree's hints.
     this.containerDetail.on('close', () => {
       this.tree.focus();
+      this.emitNavigate();
       this.screen.render();
     });
 
     this.logViewer.on('close', () => {
       this.tree.focus();
+      this.emitNavigate();
       this.screen.render();
     });
 
     this.logViewer.on('follow-change', (f) => this.logFollowHandlers.forEach((h) => h(f)));
+
+    this.containerDetail.on('env-mode', (active) => this.detailEnvHandlers.forEach((h) => h(active)));
+    this.containerDetail.on('info', (msg) => this.infoHandlers.forEach((h) => h(msg)));
+    this.containerDetail.on('error', (msg) => this.emitError(msg));
 
     this.filterBox.on('submit', (value: string) => {
       this.applyFilter(value ?? '');
@@ -110,16 +120,25 @@ export class StacksTab {
     });
   }
 
-  on(event: 'error', handler: ErrorHandler): void;
+  on(event: 'error' | 'info', handler: ErrorHandler): void;
   on(event: 'navigate', handler: NavigateHandler): void;
   on(event: 'detail-open', handler: DetailOpenHandler): void;
   on(event: 'log-open', handler: LogOpenHandler): void;
   on(event: 'log-follow-change', handler: LogFollowHandler): void;
+  on(event: 'detail-env', handler: DetailEnvHandler): void;
   on(
-    event: 'error' | 'navigate' | 'detail-open' | 'log-open' | 'log-follow-change',
-    handler: ErrorHandler | NavigateHandler | DetailOpenHandler | LogOpenHandler | LogFollowHandler,
+    event: 'error' | 'info' | 'navigate' | 'detail-open' | 'log-open' | 'log-follow-change' | 'detail-env',
+    handler:
+      | ErrorHandler
+      | NavigateHandler
+      | DetailOpenHandler
+      | LogOpenHandler
+      | LogFollowHandler
+      | DetailEnvHandler,
   ): void {
     if (event === 'error') this.errorHandlers.push(handler as ErrorHandler);
+    else if (event === 'info') this.infoHandlers.push(handler as ErrorHandler);
+    else if (event === 'detail-env') this.detailEnvHandlers.push(handler as DetailEnvHandler);
     else if (event === 'navigate') this.navigateHandlers.push(handler as NavigateHandler);
     else if (event === 'detail-open') this.detailOpenHandlers.push(handler as DetailOpenHandler);
     else if (event === 'log-open') this.logOpenHandlers.push(handler as LogOpenHandler);
@@ -272,6 +291,8 @@ export class StacksTab {
     this.filterBox.hide();
     this.filterBox.setValue('');
     this.tree.focus();
+    // The filter's own rebuild emitted while it was still open, which App ignores.
+    this.emitNavigate();
     this.screen.render();
   }
 
@@ -324,7 +345,7 @@ export class StacksTab {
       if (c) this.emitError(`Cannot exec into ${c.name}: container is not running`);
       return;
     }
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
+    this.closeDetailForAction();
     const result = openExternalShell(c.id);
     if (!result.ok) {
       this.emitError(result.error ?? `Failed to open external terminal for ${c.name}`);
@@ -369,7 +390,7 @@ export class StacksTab {
       this.emitError(`Cannot start ${c.name}: status is ${c.status}`);
       return;
     }
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
+    this.closeDetailForAction();
     void this.runMutation(() => startContainer(c.id))
       .catch((err: unknown) => this.emitError(err))
       .finally(() => {
@@ -398,8 +419,18 @@ export class StacksTab {
     return sel.container;
   }
 
+  /**
+   * An action that leaves the detail panel (confirm, start, shell) hides it here. Re-emitting the
+   * selection puts the footer back on the tree's hints now rather than at the next poll.
+   */
+  private closeDetailForAction(): void {
+    if (!this.containerDetail.isVisible()) return;
+    this.containerDetail.hide();
+    this.emitNavigate();
+  }
+
   private confirmAndRun(title: string, message: string, danger: boolean, action: () => Promise<void>): void {
-    if (this.containerDetail.isVisible()) this.containerDetail.hide();
+    this.closeDetailForAction();
     this.confirmDialog.show({
       title,
       message,
