@@ -5,6 +5,7 @@ import { t } from '@theme';
 import { volumeFilterFields } from '@utils/filter';
 import { humanSizeMB, truncate } from '@utils/format';
 import { formatUsedBy } from '@utils/list-cells';
+import { unusedLabel } from '@utils/orphans';
 import { ResourceListTab } from '@ui/resource-list-tab';
 import { VolumeDetail } from '@ui/volumes/volume-detail';
 import type { TabNav } from '@ui/view-tab';
@@ -18,6 +19,7 @@ export class VolumesTab extends ResourceListTab<VolumeInfo> {
       {
         view: 'volumes',
         footer: 'volumes',
+        noun: 'volume',
         remove: (vol) => removeVolume(vol.name),
         getKey: (vol) => vol.name,
         emptyMessage: 'No volumes',
@@ -25,6 +27,27 @@ export class VolumesTab extends ResourceListTab<VolumeInfo> {
         confirmLabel: (vol) => vol.name,
         filterFields: volumeFilterFields,
         guards: [(vol) => (vol.inUse ? 'Volume in use — cannot delete' : null)],
+        cleanups: [
+          {
+            key: 'd',
+            label: 'Dangling',
+            detail: 'anonymous, and no container mounts them',
+            matches: (vol) => vol.dangling === true,
+          },
+          {
+            key: 'o',
+            label: 'Orphaned',
+            detail: 'their compose project has no containers left',
+            matches: (vol) => vol.orphaned === true,
+          },
+          {
+            key: 'u',
+            label: 'All unused',
+            detail: 'every volume no container mounts',
+            matches: (vol) => !vol.inUse,
+          },
+        ],
+        sizeMB: (vol) => vol.sizeMB,
         detail: {
           kind: 'volume',
           create: (s, d) => new VolumeDetail(s, d),
@@ -47,8 +70,7 @@ export class VolumesTab extends ResourceListTab<VolumeInfo> {
           {
             header: 'STATUS',
             weight: 0,
-            render: (vol) =>
-              vol.inUse ? t.green('● in use') : t.red(vol.orphaned ? '○ orphaned' : '○ unused'),
+            render: (vol) => (vol.inUse ? t.green('● in use') : t.red(unusedLabel(vol))),
           },
         ],
       },

@@ -37,6 +37,8 @@ export interface ActionChoice extends Omit<Choice, 'onPick'> {
   also?: AlsoChanges;
   /** Said in the footer as it starts, for one that takes a while (a whole stack). */
   pending?: string;
+  /** Said in the footer once it succeeded, where the list alone wouldn't show it (many rows gone). */
+  done?: string;
 }
 
 /** A dialog whose every choice runs a mutation: what the container and stack actions build. */

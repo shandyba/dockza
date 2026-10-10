@@ -196,6 +196,11 @@ describe('VolumeDetail content and copy', () => {
     expect((detail.box as any).content).not.toContain('{underline}');
   });
 
+  it('an anonymous volume no container mounts: dangling', () => {
+    detail.show({ ...orphan, dangling: true });
+    expect(text()).toContain('○ dangling');
+  });
+
   it('a volume with no compose or anonymous labels says so', () => {
     detail.show(volume('plain'));
     expect(text()).toContain('RELATED (0)  none — no compose or anonymous labels');

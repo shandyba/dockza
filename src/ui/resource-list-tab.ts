@@ -1,8 +1,9 @@
 import blessed from 'neo-blessed';
 import type { Location, PanelFocus, ResourceKind, ResourceRef, ViewId } from '@models/nav';
-import { ConfirmDialog } from '@ui/containers/confirm-dialog';
+import { cleanupDialog, removeMarkedDialog, type BulkTarget, type Cleanup } from '@ui/bulk-actions';
+import { ConfirmDialog, type ActionDialog } from '@ui/containers/confirm-dialog';
 import { FilterBar } from '@ui/filter-bar';
-import { filteredHints, type FooterContext, type FooterHints, type Hint } from '@ui/footer';
+import { filteredHints, markedHints, type FooterContext, type FooterHints, type Hint } from '@ui/footer';
 import type { TabNav, ViewTab } from '@ui/view-tab';
 import { t } from '@theme';
 import { filterItems, type FilterFields } from '@utils/filter';
@@ -18,6 +19,11 @@ import {
 
 type Handler = () => void;
 type MessageHandler = (message: string) => void;
+
+/** Columns before a row's first cell: its mark, then a space. */
+const GUTTER = 2;
+const MARKED = `${t.yellow('✓')} `;
+const UNMARKED = ' '.repeat(GUTTER);
 
 export interface ResourceColumn<T> {
   /** Header label; truncated to the column width so it can never overflow. */
@@ -60,6 +66,8 @@ export interface ResourceListConfig<T> {
   view: ViewId;
   /** Footer hints over the list. */
   footer: FooterContext;
+  /** Singular, for counts: `3 volumes`. */
+  noun: string;
   remove: (item: T) => Promise<void>;
   /** Stable key used to preserve the selection across refreshes. */
   getKey: (item: T) => string;
@@ -69,6 +77,10 @@ export interface ResourceListConfig<T> {
   confirmLabel: (item: T) => string;
   /** Ordered guards; the first non-null message blocks deletion and is emitted. */
   guards: Array<(item: T) => string | null>;
+  /** What `D` offers to delete all of at once. None: `D` does nothing here. */
+  cleanups?: Cleanup<T>[];
+  /** Its size in MB, for what a clean-up frees; 0 when unknown. */
+  sizeMB?: (item: T) => number;
   columns: ResourceColumn<T>[];
   /** The text `/` matches a row on. */
   filterFields: (item: T) => FilterFields;
@@ -81,6 +93,11 @@ export interface ResourceListConfig<T> {
  * a header bar over a bordered list, `d`-to-delete with a confirm dialog and guards,
  * selection preservation across polls, `/` to filter, an optional detail panel, and the `ViewTab`
  * contract.
+ *
+ * Rows can be marked (`Space`, `a` for every row shown, Esc to drop them), and `d` then deletes
+ * every marked one that its guards let go. `D` deletes by kind instead (every dangling volume),
+ * among the rows the filter shows. Marks are by key: they survive polls and filters, and a row
+ * that disappears takes its mark with it.
  * Concrete tabs supply only their columns, guards, confirm strings, remove function and
  * detail via config.
  *
@@ -95,6 +112,8 @@ export class ResourceListTab<T> implements ViewTab {
   private headerBox: blessed.Widgets.BoxElement;
   readonly list: blessed.Widgets.ListElement;
   private messageBox: blessed.Widgets.BoxElement;
+  /** `N marked`, drawn into the list frame's top border. */
+  private marksBox: blessed.Widgets.BoxElement;
   private confirmDialog: ConfirmDialog;
   private filterBar: FilterBar;
   private detail: ResourceDetail<T> | null = null;
@@ -104,6 +123,8 @@ export class ResourceListTab<T> implements ViewTab {
   /** Everything App pushed; `shown` is what the filter lets through, row for row with the list. */
   private items: T[] = [];
   private shown: T[] = [];
+  /** Keys of the marked rows, shown or not. */
+  private readonly marks = new Set<string>();
   private active = false;
   private updating = false;
   private contextHandlers: Handler[] = [];
@@ -119,15 +140,18 @@ export class ResourceListTab<T> implements ViewTab {
 
   private readonly handleD = () => {
     if (!this.active || this.confirmDialog.isVisible()) return;
+    // A detail is about its one subject; the marks are the list's.
+    if (!this.detail?.isVisible() && this.marks.size > 0) {
+      this.removeMarked();
+      return;
+    }
     const item = this.detail?.isVisible() ? this.shownItem() : this.selected();
     if (!item) return;
 
-    for (const guard of this.config.guards) {
-      const msg = guard(item);
-      if (msg) {
-        this.emitError(msg);
-        return;
-      }
+    const msg = this.blockedBy(item);
+    if (msg) {
+      this.emitError(msg);
+      return;
     }
 
     if (this.detail?.isVisible()) this.nav.open(null);
@@ -149,6 +173,15 @@ export class ResourceListTab<T> implements ViewTab {
         this.screen.render();
       },
     });
+  };
+
+  private readonly handleShiftD = () => {
+    const cleanups = this.config.cleanups;
+    if (!this.active || this.confirmDialog.isVisible() || !cleanups) return;
+    if (this.detail?.isVisible()) this.nav.open(null);
+    const pool = this.shown.filter((i) => this.blockedBy(i) === null);
+    const shown = this.filterBar.isActive() ? this.shown.length : undefined;
+    this.confirmAndRun(cleanupDialog(this.bulkTarget(), cleanups, pool, shown));
   };
 
   constructor(
@@ -173,9 +206,28 @@ export class ResourceListTab<T> implements ViewTab {
     this.headerBox = createHeaderBar(this.wrapper);
     this.list = createListWidget(this.wrapper);
     this.messageBox = createCenteredMessage(this.wrapper);
+    // After the list, so it draws over its top border.
+    this.marksBox = blessed.box({
+      parent: this.wrapper,
+      top: 1,
+      right: 1,
+      width: 1,
+      height: 1,
+      tags: true,
+      hidden: true,
+    });
 
     this.list.on('select item', () => {
       if (!this.updating) this.emitContext();
+    });
+
+    // On the list, like the filter's keys: it has the focus only with no panel or dialog up.
+    this.list.key(['space'], () => this.toggleMark());
+    this.list.key(['a'], () => this.markAllShown());
+    // Bound before the filter's own Esc, so it still sees a filter that Esc is about to clear:
+    // one Esc clears the filter, the next the marks.
+    this.list.key(['escape'], () => {
+      if (!this.filterBar.isActive() && this.marks.size > 0) this.setMarks(() => this.marks.clear());
     });
 
     this.confirmDialog = new ConfirmDialog(screen);
@@ -226,6 +278,7 @@ export class ResourceListTab<T> implements ViewTab {
     this.list.focus();
     this.screen.key(['enter'], this.handleEnter);
     this.screen.key(['d'], this.handleD);
+    if (this.config.cleanups) this.screen.key(['S-d'], this.handleShiftD);
     this.emitContext();
   }
 
@@ -238,6 +291,8 @@ export class ResourceListTab<T> implements ViewTab {
     this.confirmDialog.hide();
     this.screen.removeKey('enter', this.handleEnter);
     this.screen.removeKey('d', this.handleD);
+    // Only what was bound: blessed drops a key's only listener whichever handler it is handed.
+    if (this.config.cleanups) this.screen.removeKey('S-d', this.handleShiftD);
   }
 
   location(): Location {
@@ -278,11 +333,17 @@ export class ResourceListTab<T> implements ViewTab {
   footerContext(): FooterHints {
     if (this.filterBar.isEditing()) return 'filter';
     if (this.detail?.isVisible()) return this.detail.focusedHints() ?? this.config.detail!.footer;
-    return this.filterBar.isActive() ? filteredHints(this.config.footer) : this.config.footer;
+    const filtered = this.filterBar.isActive();
+    const hints = filtered ? filteredHints(this.config.footer) : this.config.footer;
+    return this.marks.size > 0 ? markedHints(hints, this.marks.size, filtered) : hints;
   }
 
   setData(items: T[]): void {
     this.items = items;
+    if (this.marks.size > 0) {
+      const present = new Set(items.map((i) => this.config.getKey(i)));
+      for (const key of this.marks) if (!present.has(key)) this.marks.delete(key);
+    }
     this.render({ toTop: false });
 
     if (this.detail?.isVisible()) {
@@ -319,7 +380,7 @@ export class ResourceListTab<T> implements ViewTab {
     this.messageBox.hide();
 
     const innerWidth = Math.max(10, (this.list.width as number) - 2);
-    const widths = this.calcWidths(innerWidth);
+    const widths = this.calcWidths(innerWidth - GUTTER);
 
     this.renderHeader(widths);
 
@@ -342,6 +403,94 @@ export class ResourceListTab<T> implements ViewTab {
     }
 
     this.filterBar.setCount(this.shown.length, this.items.length);
+    this.drawMarks();
+  }
+
+  private drawMarks(): void {
+    if (this.marks.size === 0) {
+      this.marksBox.hide();
+      return;
+    }
+    const text = ` ${this.marks.size} marked `;
+    this.marksBox.setContent(t.yellow(text));
+    this.marksBox.width = text.length;
+    this.marksBox.show();
+  }
+
+  /** Marks or unmarks the row under the cursor, then moves down: a run of rows is a run of Spaces. */
+  private toggleMark(): void {
+    const item = this.selected();
+    if (!item) return;
+    const key = this.config.getKey(item);
+    this.list.down(1);
+    this.setMarks(() => (this.marks.has(key) ? this.marks.delete(key) : this.marks.add(key)));
+  }
+
+  /** Marks every row shown; when they all are already, unmarks them. Rows the filter hides keep theirs. */
+  private markAllShown(): void {
+    const keys = this.shown.map((i) => this.config.getKey(i));
+    if (keys.length === 0) return;
+    const all = keys.every((k) => this.marks.has(k));
+    this.setMarks(() => keys.forEach((k) => (all ? this.marks.delete(k) : this.marks.add(k))));
+  }
+
+  private setMarks(change: () => void): void {
+    change();
+    this.render({ toTop: false });
+    this.emitContext();
+    this.screen.render();
+  }
+
+  /** `d` with rows marked: all of them, hidden by the filter or not, but for those a guard keeps. */
+  private removeMarked(): void {
+    const marked = this.items.filter((i) => this.marks.has(this.config.getKey(i)));
+    if (marked.length === 0) return;
+    const deletable = marked.filter((i) => this.blockedBy(i) === null);
+    if (deletable.length === 0) {
+      const msg = this.blockedBy(marked[0]);
+      this.emitError(marked.length === 1 ? msg : `${msg} (all ${marked.length} marked)`);
+      return;
+    }
+    const shownKeys = new Set(this.shown.map((i) => this.config.getKey(i)));
+    const hidden = deletable.filter((i) => !shownKeys.has(this.config.getKey(i))).length;
+    const blocked = marked.length - deletable.length;
+    this.confirmAndRun(removeMarkedDialog(this.bulkTarget(), deletable, { blocked, hidden }));
+  }
+
+  /** The first guard's reason this row can't be deleted, or null. */
+  private blockedBy(item: T): string | null {
+    for (const guard of this.config.guards) {
+      const msg = guard(item);
+      if (msg) return msg;
+    }
+    return null;
+  }
+
+  private bulkTarget(): BulkTarget<T> {
+    const { noun, confirmLabel, remove, sizeMB } = this.config;
+    return { noun, nameOf: confirmLabel, remove, ...(sizeMB ? { sizeMB } : {}) };
+  }
+
+  /** Each choice runs through `runMutation`, saying in the footer as it starts and once it's done. */
+  private confirmAndRun(dialog: ActionDialog): void {
+    const refocus = () => {
+      this.list.focus();
+      this.screen.render();
+    };
+    this.confirmDialog.choose({
+      ...dialog,
+      choices: dialog.choices.map(({ run, also, pending, done, ...choice }) => ({
+        ...choice,
+        onPick: () => {
+          if (pending) this.emitInfo(pending);
+          void this.runMutation(run, also)
+            .then(() => done && this.emitInfo(done))
+            .catch((err: unknown) => this.emitError(err))
+            .finally(refocus);
+        },
+      })),
+      onCancel: refocus,
+    });
   }
 
   private indexOf(key: string): number {
@@ -385,6 +534,10 @@ export class ResourceListTab<T> implements ViewTab {
     this.contextHandlers.forEach((h) => h());
   }
 
+  private emitInfo(msg: string): void {
+    this.infoHandlers.forEach((h) => h(msg));
+  }
+
   private emitError(err: unknown): void {
     const msg = err instanceof Error ? err.message : String(err);
     this.errorHandlers.forEach((h) => h(msg));
@@ -410,9 +563,10 @@ export class ResourceListTab<T> implements ViewTab {
     const cols = this.config.columns;
     const parts = cols.map((col, i) => {
       const w = widths[i];
-      // First column carries a leading space and pads to w+1 (the list body indents
-      // its rows by one), matching the data offset below.
-      if (i === 0) return padEnd(t.comment(` ${truncate(col.header, w - 1)}`), w + 1);
+      // First column carries a leading space for the list's border, and the gutter for the marks,
+      // matching the data offset below.
+      const lead = ' '.repeat(1 + GUTTER);
+      if (i === 0) return padEnd(t.comment(`${lead}${truncate(col.header, w - 1)}`), w + lead.length);
       if (i === cols.length - 1) return t.comment(truncate(col.header, w));
       return padEnd(t.comment(truncate(col.header, w)), w);
     });
@@ -420,6 +574,9 @@ export class ResourceListTab<T> implements ViewTab {
   }
 
   private buildRow(item: T, widths: number[]): string {
-    return this.config.columns.map((col, i) => padEnd(col.render(item, widths[i]), widths[i])).join('');
+    const mark = this.marks.has(this.config.getKey(item)) ? MARKED : UNMARKED;
+    return (
+      mark + this.config.columns.map((col, i) => padEnd(col.render(item, widths[i]), widths[i])).join('')
+    );
   }
 }

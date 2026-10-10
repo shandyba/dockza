@@ -163,6 +163,8 @@ export interface VolumeInfo {
   inUse: boolean;
   /** Unused, and its compose project has no containers left. Joined in by App. */
   orphaned?: boolean;
+  /** Anonymous and unused, and not already an orphan. Joined in by App. */
+  dangling?: boolean;
   /** For an anonymous volume: the image `VOLUME`s it was made for. Joined in by App. */
   provenance?: VolumeProvenance[];
 }

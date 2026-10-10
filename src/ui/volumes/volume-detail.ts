@@ -3,6 +3,7 @@ import type { VolumeInfo, VolumeUser } from '@models/docker';
 import type { PanelFocus, ResourceRef } from '@models/nav';
 import { t } from '@theme';
 import { dateTime, escapeTags, humanSizeMB, oneLine, relativeTime } from '@utils/format';
+import { unusedLabel } from '@utils/orphans';
 import { textOption, type CopyOption } from '@ui/copy-menu';
 import { allNames } from '@ui/detail/copy-all';
 import { DetailPanel, type CopyFn } from '@ui/detail/detail-panel';
@@ -134,9 +135,7 @@ export class VolumeDetail implements ResourceDetail<VolumeInfo> {
 
     return [
       `{bold}${t.purple(safe(v.name))}{/bold}  ${t.comment(`${safe(v.driver)} · ${size}`)}`,
-      v.inUse
-        ? t.green(`● in use · ${n} container${n === 1 ? '' : 's'}`)
-        : t.red(v.orphaned ? '○ orphaned' : '○ unused'),
+      v.inUse ? t.green(`● in use · ${n} container${n === 1 ? '' : 's'}`) : t.red(unusedLabel(v)),
       '',
       `${t.comment('Created:')}     ${created}`,
       `${t.comment('Mountpoint:')}  ${safe(v.mountpoint)}`,

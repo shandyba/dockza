@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { liveProjects, markOrphans } from '@utils/orphans';
+import { liveProjects, markDangling, markOrphans, unusedLabel } from '@utils/orphans';
 import { groupIntoStacks } from '@utils/stacks';
 import { endpoint, makeContainer, makeNetwork, makeVolume } from '../fixtures';
 
@@ -42,5 +42,36 @@ describe('markOrphans', () => {
     const [marked] = markOrphans([net], live);
     expect(marked.orphaned).toBeUndefined();
     expect(net.orphaned).toBe(true);
+  });
+});
+
+describe('markDangling', () => {
+  it('marks an anonymous volume no container mounts', () => {
+    const [loose] = markDangling([makeVolume('a'.repeat(64), { anonymous: true })]);
+    expect(loose.dangling).toBe(true);
+  });
+
+  it('leaves an anonymous volume in use, a named one, and an orphan', () => {
+    const items = markDangling([
+      makeVolume('b'.repeat(64), { anonymous: true, inUse: true }),
+      makeVolume('plain'),
+      makeVolume('dzlink-gone_cache', { anonymous: true, stack: 'dzlink-gone', orphaned: true }),
+    ]);
+    for (const v of items) expect(v.dangling).toBeUndefined();
+  });
+
+  it('clears a mark that no longer holds', () => {
+    const vol = makeVolume('c'.repeat(64), { anonymous: true, inUse: true, dangling: true });
+    const [marked] = markDangling([vol]);
+    expect(marked.dangling).toBeUndefined();
+    expect(vol.dangling).toBe(true);
+  });
+});
+
+describe('unusedLabel', () => {
+  it('names an orphan, then a dangling volume, and calls the rest unused', () => {
+    expect(unusedLabel({ orphaned: true })).toBe('○ orphaned');
+    expect(unusedLabel({ dangling: true })).toBe('○ dangling');
+    expect(unusedLabel({})).toBe('○ unused');
   });
 });

@@ -45,7 +45,8 @@ dockza
 - **Networks** — list Docker networks with driver, scope, the containers attached, creation time, and in-use status; remove unused networks (built-in networks and any with attached containers are protected).
 - **Detail panel** — full metadata, live CPU/MEM bars, the image and compose stack a container belongs to, its published ports, the networks it is on with its address and DNS names, mounts with the volume each one comes from, the containers it depends on, and environment variables you can browse, expand to their full value, and copy to the clipboard.
 - **Everything links** — containers, images, volumes, networks and compose stacks each have a detail, and each names the others it relates to: a container's image and stack, an image's or a network's containers, a stack's services, volumes and networks, a container's `depends_on`. `Enter` on any of them opens it; `[` comes back.
-- **Outdated and orphaned** — an orange `↑` marks a container whose image tag now points at a newer image, and `○ orphaned` a volume or network left behind by a compose project that has no containers any more.
+- **Mark and clean up** — mark rows in the Images, Volumes and Networks lists and delete them in one go, or clean up every dangling, orphaned or unused volume at once, with the space it frees shown first.
+- **Outdated, orphaned and dangling** — an orange `↑` marks a container whose image tag now points at a newer image, `○ orphaned` a volume or network left behind by a compose project that has no containers any more, and `○ dangling` an anonymous volume no container mounts.
 - **Back / forward** — `[` and `]` walk through the screens you visited, links followed included.
 - **Streaming log viewer** with follow mode, scrollback cap, and color-coded stdout/stderr.
 - **Filter as you type** — press `/` on any list and it narrows with every key, ignoring case: stacks by stack or service, containers by name, image, ID or project, images by repository, tag or ID, volumes and networks by name or driver. `↑ ↓` walk the matches while you type, `Enter` keeps the filter for the list's own keys, `Esc` clears it.
@@ -219,7 +220,23 @@ On Docker Desktop a bind's source is reported as `/host_mnt/…`; dockza shows a
 |-----|--------|
 | `↑ ↓` / `j k` | Navigate list |
 | `Enter` | Open the item's detail |
-| `d` | Delete unused item (confirm), also from its detail |
+| `d` | Delete unused item (confirm), also from its detail — or, with rows marked, every marked one |
+| `Space` | Mark / unmark the item and move down |
+| `a` | Mark every row shown (the filter applies), or unmark them all |
+| `Esc` | Clear the filter, then the marks |
+| `D` | Volumes: clean up — delete every volume of a kind (below) |
+
+Marks survive polls and filters. `d` with rows marked deletes all of them, including any the filter now hides (the dialog says how many), and skips those in use, which stay marked. So does a row that fails to go.
+
+**Cleaning up volumes.** `D` deletes every volume of one kind among the rows shown, so a filter narrows it. The dialog shows how many of each there are and the space they take, and the key you press is the confirmation:
+
+| Key | Deletes |
+|-----|---------|
+| `d` | **Dangling**: anonymous volumes no container mounts |
+| `o` | **Orphaned**: volumes whose compose project has no containers left |
+| `u` | **All unused**: every volume no container mounts |
+
+Nothing in use is ever deleted; a volume's containers have to go first (`rm -v`, `down -v`).
 
 Each list's USED BY column names the containers using the item, running or stopped (`+N` for more): those created from an image, mounting a volume, or attached to a network.
 
@@ -228,14 +245,14 @@ Each list's USED BY column names the containers using the item, running or stopp
 - **A network's detail** shows its subnets and gateways, its compose stack, and each attached container with its address and DNS names.
 - **A stack's detail** (`Enter` on a stack in the Stacks view) shows its compose file(s) and working directory, its services, and the volumes and networks its project created.
 
-`Tab` then `Enter` on a row opens what it names. A volume or network whose compose project has no containers left reads `○ orphaned`, and its detail says so instead of linking to a stack.
+`Tab` then `Enter` on a row opens what it names. A volume or network whose compose project has no containers left reads `○ orphaned`, and its detail says so instead of linking to a stack. An anonymous volume no container mounts reads `○ dangling`: with no name to ask for it by, nothing will mount it again.
 
 Networks additionally protect the built-in `bridge` / `host` / `none` networks and any network with attached containers — `d` on those shows a message instead of a confirm dialog. In-use detection is consistent with Images and Volumes: a network counts as in use whenever a container is attached, running or stopped.
 
 ### Confirm dialog
 
-| `y` / `Y` to confirm · `d` / `v` where the dialog offers them · `n` / `N` / `Esc` to cancel |
-|-----------------------------------------------------------------------------------------------|
+| `y` / `Y` to confirm · `d` / `v` / `o` / `u` where the dialog offers them · `n` / `N` / `Esc` to cancel |
+|---------------------------------------------------------------------------------------------------------|
 
 ## Troubleshooting
 

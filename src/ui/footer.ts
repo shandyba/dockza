@@ -38,6 +38,10 @@ export const BACK: Hint = { key: '[ ]', verb: 'back/fwd' };
 
 const FILTER: Hint = { key: '/', verb: 'filter' };
 const UNFILTER: Hint = { key: 'Esc', verb: 'unfilter' };
+const DELETE: Hint = { key: 'd', verb: 'delete' };
+const MARK: Hint = { key: 'Space', verb: 'mark' };
+const MARK_ALL: Hint = { key: 'a', verb: 'all' };
+const UNMARK: Hint = { key: 'Esc', verb: 'unmark' };
 
 /** Over a detail panel with no section selected. */
 const RESOURCE_DETAIL: Hint[] = [
@@ -145,7 +149,8 @@ const HINTS: Record<FooterContext, Hint[]> = {
   images: [
     { key: '↑↓', verb: 'nav' },
     { key: '↵', verb: 'detail' },
-    { key: 'd', verb: 'delete' },
+    DELETE,
+    MARK,
     FILTER,
     BACK,
     { key: 'h', verb: 'help' },
@@ -154,7 +159,9 @@ const HINTS: Record<FooterContext, Hint[]> = {
   volumes: [
     { key: '↑↓', verb: 'nav' },
     { key: '↵', verb: 'detail' },
-    { key: 'd', verb: 'delete' },
+    DELETE,
+    { key: 'D', verb: 'clean up' },
+    MARK,
     FILTER,
     BACK,
     { key: 'h', verb: 'help' },
@@ -163,7 +170,8 @@ const HINTS: Record<FooterContext, Hint[]> = {
   networks: [
     { key: '↑↓', verb: 'nav' },
     { key: '↵', verb: 'detail' },
-    { key: 'd', verb: 'delete' },
+    DELETE,
+    MARK,
     FILTER,
     BACK,
     { key: 'h', verb: 'help' },
@@ -215,6 +223,18 @@ export function filteredHints(context: FooterContext): Hint[] {
   const back = hints.indexOf(BACK);
   const pos = at >= 0 ? at : back >= 0 ? back : hints.length;
   return [...hints.slice(0, pos), FILTER, UNFILTER, ...hints.slice(pos)];
+}
+
+/**
+ * A list's hints with rows marked: `d` says how many it takes, `a` marks or unmarks every row shown,
+ * and Esc unmarks once no filter is left for it to clear first.
+ */
+export function markedHints(hints: FooterHints, marked: number, filtered: boolean): Hint[] {
+  const base = typeof hints === 'string' ? HINTS[hints] : hints;
+  const out = base.map((h) => (h === DELETE ? { key: 'd', verb: `delete ${marked}` } : h));
+  const at = out.indexOf(MARK);
+  if (at < 0) return out;
+  return [...out.slice(0, at + 1), MARK_ALL, ...(filtered ? [] : [UNMARK]), ...out.slice(at + 1)];
 }
 
 /**

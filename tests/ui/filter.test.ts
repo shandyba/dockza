@@ -55,6 +55,7 @@ describe('filter on a resource list', () => {
     const config: ResourceListConfig<Item> = {
       view: 'images',
       footer: 'images',
+      noun: 'item',
       remove: async (item) => {
         removed.push(item.id);
       },

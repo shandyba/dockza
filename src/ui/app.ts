@@ -10,7 +10,7 @@ import { withLinks } from '@utils/container-links';
 import { withImageUsers } from '@utils/image-users';
 import { describeRef, viewForRef } from '@utils/nav-history';
 import { withNetworkUsers } from '@utils/network-users';
-import { liveProjects, markOrphans } from '@utils/orphans';
+import { liveProjects, markDangling, markOrphans } from '@utils/orphans';
 import { markOutdated } from '@utils/outdated';
 import { imagesToInspect, withProvenance } from '@utils/provenance';
 import { groupIntoStacks, type Stack } from '@utils/stacks';
@@ -424,7 +424,7 @@ export class App {
     if (!this.volumes) return;
     const used = withUsers(this.volumes, this.containers);
     const traced = withProvenance(used, this.containers, this.imageVolumes, this.images ?? []);
-    this.joinedVolumes = this.withOrphans(traced);
+    this.joinedVolumes = this.withDangling(this.withOrphans(traced));
     this.volumesTab.setData(this.joinedVolumes);
     this.stacksTab.setResources(this.joinedVolumes, this.joinedNetworks);
     void this.inspectImages();
@@ -462,6 +462,11 @@ export class App {
   /** Volumes or networks whose compose project has no containers left, marked as such. */
   private withOrphans<T extends VolumeInfo | NetworkInfo>(items: T[]): T[] {
     return this.containersListed ? markOrphans(items, liveProjects(this.stacks)) : items;
+  }
+
+  /** Anonymous volumes no container mounts, marked as such. */
+  private withDangling(volumes: VolumeInfo[]): VolumeInfo[] {
+    return this.containersListed ? markDangling(volumes) : volumes;
   }
 
   private async fetchNetworks(token: number): Promise<void> {

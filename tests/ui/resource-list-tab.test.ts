@@ -45,6 +45,7 @@ function makeConfig(remove: (item: Item) => Promise<void>): ResourceListConfig<I
   return {
     view: 'images',
     footer: 'images',
+    noun: 'item',
     remove,
     getKey: (item) => item.id,
     emptyMessage: 'No items',

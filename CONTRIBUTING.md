@@ -33,7 +33,9 @@ src/
     router.ts             Every navigation (views, panels, links, back / forward) and its history.
     view-tab.ts           The ViewTab contract each view implements, and TabNav, how it navigates.
     widgets.ts            Shared factories + Dims interface.
-    resource-list-tab.ts  Shared base for the simple list views, with an optional detail panel.
+    resource-list-tab.ts  Shared base for the simple list views: marks, bulk delete, an optional
+                          clean-up (`D`) and detail panel.
+    bulk-actions.ts       The dialogs that delete several rows at once (marked, or by kind).
     top-bar.ts            One-row header (socket, version, counters, stats).
     footer.ts             One-row context-aware key hints + last-refresh ticker.
     side-rail.ts          28-col left rail: views + live stacks.

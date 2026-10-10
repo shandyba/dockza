@@ -3,6 +3,7 @@ import type { NetworkInfo, NetworkUser } from '@models/docker';
 import type { PanelFocus, ResourceRef } from '@models/nav';
 import { t } from '@theme';
 import { dateTime, escapeTags, oneLine, relativeTime, shortId } from '@utils/format';
+import { unusedLabel } from '@utils/orphans';
 import { textOption, type CopyOption } from '@ui/copy-menu';
 import { allNames } from '@ui/detail/copy-all';
 import { DetailPanel, type CopyFn } from '@ui/detail/detail-panel';
@@ -142,9 +143,7 @@ export class NetworkDetail implements ResourceDetail<NetworkInfo> {
 
     return [
       `{bold}${t.purple(safe(net.name))}{/bold}  ${t.comment([...kind, shortId(net.id)].join(' · '))}`,
-      net.inUse
-        ? t.green(`● in use · ${n} container${n === 1 ? '' : 's'}`)
-        : t.red(net.orphaned ? '○ orphaned' : '○ unused'),
+      net.inUse ? t.green(`● in use · ${n} container${n === 1 ? '' : 's'}`) : t.red(unusedLabel(net)),
       '',
       `${t.comment('Subnet:')}    ${list(net.subnets)}`,
       `${t.comment('Gateway:')}   ${list(net.gateways)}`,

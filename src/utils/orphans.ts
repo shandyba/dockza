@@ -27,3 +27,30 @@ export function markOrphans<T extends ProjectResource>(items: T[], live: Set<str
     return (orphaned ? { ...rest, orphaned } : rest) as T;
   });
 }
+
+/** What can dangle: a volume, already checked for orphans. */
+interface AnonymousResource {
+  anonymous: boolean;
+  inUse: boolean;
+  orphaned?: boolean;
+  dangling?: boolean;
+}
+
+/**
+ * Marks the anonymous volumes no container mounts: with no name to ask for them by, nothing will
+ * mount them again. An orphan stays an orphan, since its project says more. Run after
+ * `markOrphans`. Returns new items; the rest carry no `dangling`.
+ */
+export function markDangling<T extends AnonymousResource>(items: T[]): T[] {
+  return items.map((item) => {
+    const { dangling: _stale, ...rest } = item;
+    const dangling = item.anonymous && !item.inUse && item.orphaned !== true;
+    return (dangling ? { ...rest, dangling } : rest) as T;
+  });
+}
+
+/** How an unused volume or network reads: an orphan or a dangling volume says which. */
+export function unusedLabel(item: { orphaned?: boolean; dangling?: boolean }): string {
+  if (item.orphaned) return '○ orphaned';
+  return item.dangling ? '○ dangling' : '○ unused';
+}

@@ -19,6 +19,7 @@ export class ImagesTab extends ResourceListTab<ImageInfo> {
       {
         view: 'images',
         footer: 'images',
+        noun: 'image',
         remove: (img) => removeImage(img.id),
         getKey: (img) => img.id,
         emptyMessage: 'No images',

@@ -5,6 +5,7 @@ import { t } from '@theme';
 import { networkFilterFields } from '@utils/filter';
 import { relativeTime, shortId, truncate } from '@utils/format';
 import { formatUsedBy } from '@utils/list-cells';
+import { unusedLabel } from '@utils/orphans';
 import { NetworkDetail } from '@ui/networks/network-detail';
 import { ResourceListTab } from '@ui/resource-list-tab';
 import type { TabNav } from '@ui/view-tab';
@@ -18,6 +19,7 @@ export class NetworksTab extends ResourceListTab<NetworkInfo> {
       {
         view: 'networks',
         footer: 'networks',
+        noun: 'network',
         remove: (net) => removeNetwork(net.id),
         // By name, like every link to a network: a stopped container can hold a stale ID.
         getKey: (net) => net.name,
@@ -49,8 +51,7 @@ export class NetworksTab extends ResourceListTab<NetworkInfo> {
           {
             header: 'STATUS',
             weight: 0,
-            render: (net) =>
-              net.inUse ? t.green('● in use') : t.red(net.orphaned ? '○ orphaned' : '○ unused'),
+            render: (net) => (net.inUse ? t.green('● in use') : t.red(unusedLabel(net))),
           },
         ],
       },
