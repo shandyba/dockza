@@ -7,6 +7,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-10
+
+### Added
+
+- **Mark rows and delete them together.** In Images, Volumes and Networks, `Space` marks
+  a row and `a` every row the filter shows; `d` then deletes all marked rows, skipping
+  any in use, and `Esc` clears the marks.
+- **Clean up volumes in one go.** `D` deletes every dangling, orphaned or unused volume
+  among the rows shown, listing how many of each there are and the space they take before
+  you pick.
+- **Abandoned anonymous volumes are marked.** One that no container mounts reads
+  `○ dangling` instead of `○ unused`: with no name to ask for it by, nothing will mount
+  it again.
+
 ## [0.3.3] - 2026-10-01
 
 ### Changed
@@ -300,7 +314,8 @@ First public release on npm, as `docktui`.
 
 Releases 0.1.0 and 0.1.1 predate the fork and live in the upstream repository.
 
-[Unreleased]: https://github.com/shandyba/dockza/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/shandyba/dockza/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/shandyba/dockza/releases/tag/v0.4.0
 [0.3.3]: https://github.com/shandyba/dockza/releases/tag/v0.3.3
 [0.3.2]: https://github.com/shandyba/dockza/releases/tag/v0.3.2
 [0.3.1]: https://github.com/shandyba/dockza/releases/tag/v0.3.1
